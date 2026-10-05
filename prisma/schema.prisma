@@ -1,0 +1,516 @@
+// PracticumOS Prisma Schema
+// Provider: PostgreSQL 17 on Supabase
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ==========================================
+// 1. UNIVERSAL PERSON & AUTHENTICATION
+// ==========================================
+
+model Person {
+  id               String   @id @default(uuid())
+  firstName        String   @map("first_name")
+  lastName         String   @map("last_name")
+  email            String   @unique
+  phone            String?
+  nationalIdHash   String?  @map("national_id_hash")
+  avatarUrl        String?  @map("avatar_url")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  roleMemberships           OrgMembership[]
+  cohortEnrollments         CohortStudent[]
+  studentAllocations        PlacementAllocation[] @relation("StudentAllocations")
+  fieldSupervisedAllocations PlacementAllocation[] @relation("FieldSupervisorAllocations")
+  academicSupervisedAllocations PlacementAllocation[] @relation("AcademicSupervisorAllocations")
+  supervisionVisits         SupervisionVisit[]    @relation("SupervisorVisits")
+  assessmentEvaluations     AssessmentSubmission[] @relation("EvaluatorSubmissions")
+  approvedGrades            CohortGrade[]         @relation("GradeApprover")
+  auditActions              AuditLog[]
+  serviceProviderProfile    ServiceProvider?
+  needRequests              NeedRequest[]
+
+  @@map("persons")
+}
+
+// ==========================================
+// 2. UNIVERSAL ORGANISATION & TENANCY
+// ==========================================
+
+enum OrgType {
+  UNIVERSITY
+  COLLEGE
+  MINISTRY
+  NGO
+  HOSPITAL
+  CLINIC
+  WELFARE_AGENCY
+  COMMUNITY_CENTRE
+}
+
+model Organisation {
+  id                 String   @id @default(uuid())
+  tenantId           String?  @map("tenant_id") // Self-referencing if root tenant
+  name               String
+  slug               String   @unique
+  orgType            OrgType  @map("org_type")
+  verificationStatus String   @default("VERIFIED") @map("verification_status") // PENDING, VERIFIED, SUSPENDED
+  email              String?
+  phone              String?
+  address            String?
+  city               String?
+  country            String?  @default("Nigeria")
+  branding           Json?    @default("{}") // colors, logo_url, letterhead_config
+  settings           Json?    @default("{}")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  // Hierarchies
+  parentTenant       Organisation?   @relation("TenantHierarchy", fields: [tenantId], references: [id], onDelete: SetNull)
+  subOrganisations   Organisation[]  @relation("TenantHierarchy")
+  departments        Department[]
+  memberships        OrgMembership[]
+  practicumCycles    PracticumCycle[]
+  placementOffers    PlacementOffer[]
+  hostedAllocations  PlacementAllocation[] @relation("HostOrgAllocations")
+  auditLogs          AuditLog[]
+
+  @@map("organisations")
+}
+
+model Department {
+  id             String       @id @default(uuid())
+  organisationId String       @map("organisation_id")
+  name           String
+  code           String?
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  programmes     Programme[]
+
+  @@map("departments")
+}
+
+model Programme {
+  id             String         @id @default(uuid())
+  departmentId   String         @map("department_id")
+  name           String         // e.g. "B.Sc Social Work", "Diploma in Child Care"
+  code           String?
+  degreeLevel    String?        @map("degree_level")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  department     Department     @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  cycles         PracticumCycle[]
+
+  @@map("programmes")
+}
+
+enum SystemRole {
+  PLATFORM_SUPERADMIN
+  INSTITUTION_ADMIN
+  COORDINATOR
+  ACADEMIC_SUPERVISOR
+  AGENCY_COORDINATOR
+  FIELD_SUPERVISOR
+  STUDENT
+  CARE_SEEKER
+  COMMUNITY_PROVIDER
+}
+
+model OrgMembership {
+  id             String       @id @default(uuid())
+  personId       String       @map("person_id")
+  organisationId String       @map("organisation_id")
+  role           SystemRole
+  status         String       @default("ACTIVE") // ACTIVE, INVITED, SUSPENDED
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  person         Person       @relation(fields: [personId], references: [id], onDelete: Cascade)
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, organisationId, role])
+  @@map("org_memberships")
+}
+
+// ==========================================
+// 3. PRACTICUM CYCLE & COHORTS
+// ==========================================
+
+enum CycleDurationType {
+  ONE_MONTH
+  THREE_MONTH
+  SIX_MONTH
+  SEMESTER
+  HOURS_BASED
+  CUSTOM
+}
+
+enum CycleStatus {
+  PLANNING
+  CAPACITY_OPEN
+  MATCHING
+  ACTIVE
+  ASSESSMENT
+  GRADING
+  ARCHIVED
+}
+
+model PracticumCycle {
+  id             String            @id @default(uuid())
+  tenantId       String            @map("tenant_id")
+  programmeId    String?           @map("programme_id")
+  name           String            // e.g. "2026/2027 Social Welfare Practicum Phase I"
+  academicYear   String            @map("academic_year") // "2026/2027"
+  durationType   CycleDurationType @map("duration_type")
+  requiredHours  Int               @default(400) @map("required_hours")
+  startDate      DateTime          @map("start_date")
+  endDate        DateTime          @map("end_date")
+  status         CycleStatus       @default(PLANNING)
+  eGuideConfig   Json?             @default("{}") @map("e_guide_config")
+  scopeGuardRules Json?            @default("[]") @map("scope_guard_rules")
+  gradingFormula Json?             @default("{}") @map("grading_formula")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  tenant         Organisation      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  programme      Programme?        @relation(fields: [programmeId], references: [id], onDelete: SetNull)
+  students       CohortStudent[]
+  placementOffers PlacementOffer[]
+  allocations    PlacementAllocation[]
+  assessments    AssessmentSubmission[]
+  cohortGrades   CohortGrade[]
+
+  @@map("practicum_cycles")
+}
+
+model CohortStudent {
+  id              String         @id @default(uuid())
+  cycleId         String         @map("cycle_id")
+  personId        String         @map("person_id")
+  matricNumber    String         @map("matric_number")
+  level           String?        // 200L, 300L, 400L, Masters
+  specialty       String?        // Clinical, Community, Child Welfare
+  locationPref    String?        @map("location_pref")
+  status          String         @default("ENROLLED") // ENROLLED, MATCHED, PLACED, COMPLETED
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  cycle           PracticumCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  person          Person         @relation(fields: [personId], references: [id], onDelete: Cascade)
+  allocation      PlacementAllocation?
+  grade           CohortGrade?
+
+  @@unique([cycleId, personId])
+  @@unique([cycleId, matricNumber])
+  @@map("cohort_students")
+}
+
+// ==========================================
+// 4. PLACEMENT CAPACITY & ALLOCATION
+// ==========================================
+
+model PlacementOffer {
+  id              String         @id @default(uuid())
+  cycleId         String         @map("cycle_id")
+  hostOrgId       String         @map("host_org_id")
+  totalSlots      Int            @default(5) @map("total_slots")
+  availableSlots  Int            @default(5) @map("available_slots")
+  practiceAreas   String[]       @map("practice_areas") // Child protection, Elder care, Mental Health
+  requirements    String?
+  contactPerson   String?        @map("contact_person")
+  contactPhone    String?        @map("contact_phone")
+  status          String         @default("CONFIRMED") // PENDING, CONFIRMED, FILLED
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  cycle           PracticumCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  hostOrg         Organisation   @relation(fields: [hostOrgId], references: [id], onDelete: Cascade)
+  allocations     PlacementAllocation[]
+
+  @@map("placement_offers")
+}
+
+enum AllocationStatus {
+  PROPOSED
+  APPROVED
+  POSTED
+  ACTIVE
+  COMPLETED
+  TERMINATED
+}
+
+model PlacementAllocation {
+  id                     String           @id @default(uuid())
+  cycleId                String           @map("cycle_id")
+  cohortStudentId        String           @unique @map("cohort_student_id")
+  studentPersonId        String           @map("student_person_id")
+  hostOrgId              String           @map("host_org_id")
+  placementOfferId       String?          @map("placement_offer_id")
+  fieldSupervisorId      String?          @map("field_supervisor_id")
+  academicSupervisorId   String?          @map("academic_supervisor_id")
+  status                 AllocationStatus @default(PROPOSED)
+  postingLetterRef       String?          @map("posting_letter_ref")
+  postedAt               DateTime?        @map("posted_at")
+  startedAt              DateTime?        @map("started_at")
+  completedAt            DateTime?        @map("completed_at")
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
+
+  cycle                  PracticumCycle   @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  cohortStudent          CohortStudent    @relation(fields: [cohortStudentId], references: [id], onDelete: Cascade)
+  studentPerson          Person           @relation("StudentAllocations", fields: [studentPersonId], references: [id])
+  hostOrg                Organisation     @relation("HostOrgAllocations", fields: [hostOrgId], references: [id])
+  placementOffer         PlacementOffer?  @relation(fields: [placementOfferId], references: [id], onDelete: SetNull)
+  fieldSupervisor        Person?          @relation("FieldSupervisorAllocations", fields: [fieldSupervisorId], references: [id])
+  academicSupervisor     Person?          @relation("AcademicSupervisorAllocations", fields: [academicSupervisorId], references: [id])
+  practiceEvents         PracticeEvent[]
+  supervisionVisits      SupervisionVisit[]
+  earlyWarningAlerts     EarlyWarningAlert[]
+  assessments            AssessmentSubmission[]
+
+  @@map("placement_allocations")
+}
+
+// ==========================================
+// 5. PRACTICE EVENT, LOGBOOK & EVIDENCE
+// ==========================================
+
+enum PracticeScopeLevel {
+  INDEPENDENT
+  CO_PRACTICE
+  DIRECT_SUPERVISION
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  QUERIED
+  REJECTED
+}
+
+model PracticeEvent {
+  id                      String             @id @default(uuid())
+  allocationId            String             @map("allocation_id")
+  eventDate               DateTime           @map("event_date")
+  startTime               String             @map("start_time") // "08:30"
+  endTime                 String             @map("end_time")   // "16:00"
+  verifiedMinutes         Int                @map("verified_minutes") // 450 min = 7.5 hrs
+  category                String             // "DIRECT_CLIENT", "CASE_CONFERENCE", "HOME_VISIT", "COMMUNITY_OUTREACH", "ADMIN"
+  clientRef               String?            @map("client_ref") // De-identified Case # or Pseudonym
+  activityTitle           String             @map("activity_title")
+  activityDescription     String             @map("activity_description")
+  criticalReflection      String             @map("critical_reflection")
+  competenciesTagged      String[]           @map("competencies_tagged") // ["EPAS-1", "EPAS-4"]
+  scopeLevel              PracticeScopeLevel @default(CO_PRACTICE) @map("scope_level")
+  evidenceUrl             String?            @map("evidence_url")
+  evidenceSanitized       Boolean            @default(true) @map("evidence_sanitized")
+  verificationStatus      VerificationStatus @default(PENDING) @map("verification_status")
+  supervisorNotes         String?            @map("supervisor_notes")
+  verifiedAt              DateTime?          @map("verified_at")
+  tamperChecksum          String             @map("tamper_checksum") // SHA-256 hash
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
+
+  allocation              PlacementAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+
+  @@map("practice_events")
+}
+
+// ==========================================
+// 6. SUPERVISION, VISITS & EARLY WARNING
+// ==========================================
+
+enum VisitType {
+  PHYSICAL_ON_SITE
+  REMOTE_VIDEO
+  TELEPHONE
+}
+
+model SupervisionVisit {
+  id                   String              @id @default(uuid())
+  allocationId         String              @map("allocation_id")
+  supervisorPersonId   String              @map("supervisor_person_id")
+  visitDate            DateTime            @map("visit_date")
+  visitType            VisitType           @map("visit_type")
+  generalObservations  String              @map("general_observations")
+  agencyFeedback       String?             @map("agency_feedback")
+  actionItems          String[]            @map("action_items")
+  studentProgressRating String?            @map("student_progress_rating") // SATISFACTORY, NEEDS_IMPROVEMENT, AT_RISK
+  followUpRequired     Boolean             @default(false) @map("follow_up_required")
+  followUpDate         DateTime?           @map("follow_up_date")
+  createdAt            DateTime            @default(now()) @map("created_at")
+
+  allocation           PlacementAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  supervisor           Person              @relation("SupervisorVisits", fields: [supervisorPersonId], references: [id])
+
+  @@map("supervision_visits")
+}
+
+enum AlertType {
+  HOURS_BEHIND_SCHEDULE
+  OVERDUE_LOGBOOK_ENTRY
+  MISSED_SUPERVISION_VISIT
+  SCOPE_GUARD_FLAG
+  POOR_EVALUATION
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model EarlyWarningAlert {
+  id             String              @id @default(uuid())
+  allocationId   String              @map("allocation_id")
+  alertType      AlertType           @map("alert_type")
+  severity       AlertSeverity       @default(MEDIUM)
+  title          String
+  description    String
+  isResolved     Boolean             @default(false) @map("is_resolved")
+  resolvedAt     DateTime?           @map("resolved_at")
+  resolutionNotes String?            @map("resolution_notes")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  allocation     PlacementAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+
+  @@map("early_warning_alerts")
+}
+
+// ==========================================
+// 7. ASSESSMENTS, GRADES & RUBRICS
+// ==========================================
+
+enum EvaluatorType {
+  FIELD_SUPERVISOR
+  ACADEMIC_SUPERVISOR
+  STUDENT_SELF
+}
+
+enum AssessmentStage {
+  MIDPOINT
+  FINAL
+  PERIODIC
+}
+
+model AssessmentSubmission {
+  id                      String              @id @default(uuid())
+  cycleId                 String              @map("cycle_id")
+  allocationId            String              @map("allocation_id")
+  evaluatorPersonId       String              @map("evaluator_person_id")
+  evaluatorType           EvaluatorType       @map("evaluator_type")
+  stage                   AssessmentStage
+  rubricPayload           Json                @map("rubric_payload") // Breakdown of scores per competency
+  totalScore              Float               @map("total_score")
+  maxScore                Float               @default(100) @map("max_score")
+  qualitativeRemarks      String?             @map("qualitative_remarks")
+  recommendations         String?
+  submittedAt             DateTime            @default(now()) @map("submitted_at")
+
+  cycle                   PracticumCycle      @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  allocation              PlacementAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  evaluator               Person              @relation("EvaluatorSubmissions", fields: [evaluatorPersonId], references: [id])
+
+  @@map("assessment_submissions")
+}
+
+model CohortGrade {
+  id                   String         @id @default(uuid())
+  cycleId              String         @map("cycle_id")
+  cohortStudentId      String         @unique @map("cohort_student_id")
+  logbookHoursScore    Float?         @map("logbook_hours_score")
+  fieldEvalScore       Float?         @map("field_eval_score")
+  academicEvalScore    Float?         @map("academic_eval_score")
+  reportsScore         Float?         @map("reports_score")
+  compositeScore       Float          @map("composite_score")
+  letterGrade          String         @map("letter_grade") // 'A', 'B', 'C', 'F'
+  isApproved           Boolean        @default(false) @map("is_approved")
+  approvedByPersonId   String?        @map("approved_by_person_id")
+  approvedAt           DateTime?      @map("approved_at")
+  moderationRemarks    String?        @map("moderation_remarks")
+  createdAt            DateTime       @default(now()) @map("created_at")
+  updatedAt            DateTime       @updatedAt @map("updated_at")
+
+  cycle                PracticumCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  cohortStudent        CohortStudent  @relation(fields: [cohortStudentId], references: [id], onDelete: Cascade)
+  approvedBy           Person?        @relation("GradeApprover", fields: [approvedByPersonId], references: [id])
+
+  @@map("cohort_grades")
+}
+
+// ==========================================
+// 8. AUDIT LEDGER (IMMUTABLE)
+// ==========================================
+
+model AuditLog {
+  id               String        @id @default(uuid())
+  tenantId         String?       @map("tenant_id")
+  actorPersonId    String?       @map("actor_person_id")
+  actionType       String        @map("action_type") // e.g. "GRADE_APPROVED", "ALLOCATION_OVERRIDDEN"
+  resourceType     String        @map("resource_type") // "CohortGrade", "PlacementAllocation"
+  resourceId       String        @map("resource_id")
+  beforeState      Json?         @map("before_state")
+  afterState       Json?         @map("after_state")
+  ipAddress        String?       @map("ip_address")
+  userAgent        String?       @map("user_agent")
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  tenant           Organisation? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  actor            Person?       @relation(fields: [actorPersonId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+// ==========================================
+// 9. SYSTEM B: HUMAN NEEDS & SERVICES
+// ==========================================
+
+enum NeedCategory {
+  ELDERLY_CARE
+  DISABILITY_SUPPORT
+  CHILD_FAMILY_WELFARE
+  PSYCHOSOCIAL_SUPPORT
+  HOME_CARE_CLEANING
+  COMMUNITY_PROGRAMMES
+  OTHER
+}
+
+model NeedRequest {
+  id               String        @id @default(uuid())
+  seekerPersonId   String        @map("seeker_person_id")
+  category         NeedCategory
+  title            String
+  description      String
+  urgencyLevel     String        @default("STANDARD") @map("urgency_level") // LOW, STANDARD, URGENT
+  locationCity     String?       @map("location_city")
+  status           String        @default("OPEN") // OPEN, MATCHED, SERVICED, CLOSED
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  seeker           Person        @relation(fields: [seekerPersonId], references: [id], onDelete: Cascade)
+
+  @@map("need_requests")
+}
+
+model ServiceProvider {
+  id               String        @id @default(uuid())
+  personId         String        @unique @map("person_id")
+  headline         String
+  bio              String
+  skills           String[]
+  verifiedStatus   String        @default("PENDING") @map("verified_status") // PENDING, VERIFIED
+  practicePassport Json?         @default("{}") @map("practice_passport")
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  person           Person        @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@map("service_providers")
+}
