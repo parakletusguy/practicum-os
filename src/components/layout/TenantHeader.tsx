@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, Shield, User, ChevronDown } from "lucide-react";
+import { Shield, User, ChevronDown } from "lucide-react";
 import { NetworkStatusBadge } from "@/components/ui/network-status-badge";
+import { NotificationCenter } from "@/components/layout/NotificationCenter";
 
 interface TenantHeaderProps {
   tenantSlug: string;
@@ -59,15 +60,8 @@ export function TenantHeader({
         {/* Offline / Online Network Sync Badge */}
         <NetworkStatusBadge />
 
-        {/* Notifications */}
-        <button
-          type="button"
-          className="relative p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-          title="1 Active Alert"
-        >
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white" />
-        </button>
+        {/* Safeguarding & Early Warning Notification Center */}
+        <NotificationCenter tenantSlug={tenantSlug} />
 
         {/* User Card */}
         <div className="flex items-center gap-2 pl-2 border-l border-slate-200">

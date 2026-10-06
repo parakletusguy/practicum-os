@@ -2,6 +2,7 @@
 
 import { Bell, ShieldCheck, UserCheck } from "lucide-react";
 import { NetworkStatusBadge } from "@/components/ui/network-status-badge";
+import { NotificationCenter } from "@/components/layout/NotificationCenter";
 
 interface FieldHeaderProps {
   supervisorName: string;
@@ -29,6 +30,7 @@ export function FieldHeader({
 
       <div className="flex items-center space-x-4">
         <NetworkStatusBadge />
+        <NotificationCenter />
 
         {pendingCount > 0 && (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold">

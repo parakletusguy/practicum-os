@@ -19,6 +19,7 @@ export async function createPracticeEventAction(data: {
   criticalReflection: string;
   competenciesTagged: string[];
   scopeLevel: PracticeScopeLevel;
+  evidenceUrl?: string;
 }) {
   try {
     // 1. Calculate duration in minutes
@@ -63,6 +64,8 @@ export async function createPracticeEventAction(data: {
         criticalReflection: data.criticalReflection,
         competenciesTagged: data.competenciesTagged,
         scopeLevel: data.scopeLevel,
+        evidenceUrl: data.evidenceUrl || null,
+        evidenceSanitized: true,
         verificationStatus: VerificationStatus.PENDING,
         tamperChecksum,
       },

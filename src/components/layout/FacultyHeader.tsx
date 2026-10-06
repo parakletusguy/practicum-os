@@ -2,6 +2,7 @@
 
 import { GraduationCap, AlertTriangle } from "lucide-react";
 import { NetworkStatusBadge } from "@/components/ui/network-status-badge";
+import { NotificationCenter } from "@/components/layout/NotificationCenter";
 
 interface FacultyHeaderProps {
   facultyName: string;
@@ -29,6 +30,7 @@ export function FacultyHeader({
 
       <div className="flex items-center space-x-4">
         <NetworkStatusBadge />
+        <NotificationCenter />
 
         {activeAlertsCount > 0 && (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-900 text-xs font-semibold">

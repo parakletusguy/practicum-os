@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, X, Loader2, ShieldAlert, CheckCircle2, AlertTriangle, FileText } from "lucide-react";
+import { Plus, X, Loader2, ShieldAlert, CheckCircle2, AlertTriangle, FileText, UploadCloud, Paperclip, Trash2 } from "lucide-react";
 import { createPracticeEventAction } from "@/modules/logbook/actions";
 import { PracticeScopeLevel } from "@prisma/client";
 import { evaluateScopeGuard } from "@/modules/scope-guard/policy";
@@ -19,6 +19,16 @@ export function LogbookModalClient({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [scopeNotice, setScopeNotice] = useState<string | null>(null);
+
+  // Evidence Vault upload state
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadedEvidence, setUploadedEvidence] = useState<{
+    url: string;
+    checksum: string;
+    name: string;
+    size: number;
+  } | null>(null);
 
   const [formData, setFormData] = useState({
     eventDate: new Date().toISOString().split("T")[0],
@@ -76,6 +86,36 @@ export function LogbookModalClient({
     });
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const data = new FormData();
+      data.append("file", file);
+      const res = await fetch("/api/storage/upload", {
+        method: "POST",
+        body: data,
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        setUploadedEvidence({
+          url: result.url,
+          checksum: result.checksum,
+          name: result.sanitizedFilename,
+          size: result.fileSizeBytes,
+        });
+      } else {
+        setUploadError(result.error || "Upload failed. Please try again.");
+      }
+    } catch (err: any) {
+      setUploadError(err.message || "Network error uploading evidence.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -85,10 +125,12 @@ export function LogbookModalClient({
         tenantSlug,
         allocationId,
         ...formData,
+        evidenceUrl: uploadedEvidence?.url,
       });
 
       if (res.success) {
         setIsOpen(false);
+        setUploadedEvidence(null);
       } else {
         setError(res.error || "Failed to log practice event.");
       }
@@ -305,6 +347,88 @@ export function LogbookModalClient({
                     );
                   })}
                 </div>
+              </div>
+
+              {/* Evidence Vault Attachment */}
+              <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <UploadCloud className="w-4 h-4 text-emerald-600" />
+                    Evidence Vault Attachment (Zero-PII Upload)
+                  </label>
+                  <span className="text-[10px] text-slate-500 font-medium">PDF, PNG, JPG (Max 10MB)</span>
+                </div>
+
+                {uploadError && (
+                  <p className="text-[11px] text-rose-600 font-medium">{uploadError}</p>
+                )}
+
+                {uploadedEvidence ? (
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-white border border-emerald-200 shadow-xs">
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-600">
+                        <Paperclip className="w-4 h-4" />
+                      </div>
+                      <div className="text-left truncate">
+                        <div className="text-xs font-semibold text-slate-800 truncate">
+                          {uploadedEvidence.name}
+                        </div>
+                        <div className="text-[10px] text-slate-500 flex items-center gap-2 font-mono">
+                          <span>{(uploadedEvidence.size / 1024).toFixed(1)} KB</span>
+                          <span>•</span>
+                          <span className="text-emerald-700 font-semibold" title={uploadedEvidence.checksum}>
+                            SHA-256: {uploadedEvidence.checksum.slice(0, 12)}...
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 ml-2">
+                      <a
+                        href={uploadedEvidence.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-800"
+                      >
+                        View
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => setUploadedEvidence(null)}
+                        className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                        title="Remove file"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="flex items-center justify-center gap-2 p-3 border border-dashed border-slate-300 hover:border-emerald-500 rounded-lg bg-white cursor-pointer transition-colors group">
+                      <input
+                        type="file"
+                        accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+                        onChange={handleFileUpload}
+                        disabled={uploading}
+                        className="hidden"
+                      />
+                      {uploading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" />
+                          <span className="text-xs text-slate-600 font-medium">
+                            Sanitizing PII & Uploading to Supabase...
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <UploadCloud className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+                          <span className="text-xs text-slate-600 font-medium group-hover:text-slate-900">
+                            Attach Case Document, Clinical Note, or Form
+                          </span>
+                        </>
+                      )}
+                    </label>
+                  </div>
+                )}
               </div>
 
               <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
