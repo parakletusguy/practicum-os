@@ -65,48 +65,48 @@ export default async function StudentDashboard({ params }: StudentDashboardProps
   const progressPercent = Math.min(100, Math.round((verifiedHoursNumber / totalRequiredHours) * 100));
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
+    <div className="space-y-6 sm:space-y-8 max-w-6xl mx-auto">
       {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl p-6 sm:p-8 text-white shadow-lg border border-slate-700/60 flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-800 rounded-2xl p-5 sm:p-8 text-white shadow-lg border border-slate-700/60 flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold uppercase tracking-wider mb-3 border border-emerald-500/30">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            Trainee Practice Workspace
+            Student Placement Workspace
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-            Welcome back, {student?.firstName ?? "Trainee"}
+            Welcome back, {student?.firstName ?? "Student"}!
           </h1>
           <p className="text-slate-300 text-xs sm:text-sm mt-1">
             {cycle?.name ?? "Supervised Field Practicum"} • Matric No: <span className="font-mono font-bold text-white">{enrollment?.matricNumber}</span>
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           <Link
             href={`/${tenantSlug}/student/placement`}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs transition-colors"
           >
             <Building2 className="w-4 h-4 text-purple-400" />
-            Placement Profile
+            Placement Details
           </Link>
           <Link
             href={`/${tenantSlug}/student/guide`}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-colors shadow-sm"
           >
             <BookOpenCheck className="w-4 h-4" />
-            E-Practicum Guide
+            Fieldwork Guide
           </Link>
         </div>
       </div>
 
       {/* Progress Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-6">
         {/* Hours Progress Ring / Card */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between">
+        <div className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Verified Practicum Hours
+                Verified Fieldwork Hours
               </span>
               <Clock className="w-5 h-5 text-emerald-600" />
             </div>
@@ -131,17 +131,17 @@ export default async function StudentDashboard({ params }: StudentDashboardProps
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
             <span className="text-slate-500 font-medium">{progressPercent}% Completed</span>
             <span className="text-amber-600 font-semibold">
-              {formatMinutesToHours(pendingMinutes)} Pending Review
+              {formatMinutesToHours(pendingMinutes)} Awaiting Review
             </span>
           </div>
         </div>
 
         {/* Host Setting Card */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between">
+        <div className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Active Placement Host
+                Active Placement Agency
               </span>
               <Building2 className="w-5 h-5 text-purple-600" />
             </div>
@@ -156,56 +156,56 @@ export default async function StudentDashboard({ params }: StudentDashboardProps
 
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
             <span className="text-emerald-700 font-semibold flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Posting Verified
+              <CheckCircle2 className="w-3.5 h-3.5" /> Placement Confirmed
             </span>
             <Link
               href={`/${tenantSlug}/student/placement`}
               className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
             >
-              View Letter <ArrowRight className="w-3 h-3" />
+              View Details <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
         </div>
 
-        {/* ScopeGuard Safety Governor Status */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between">
+        {/* Safety & Supervision Bounds */}
+        <div className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                ScopeGuard Status
+                Safety Guidelines
               </span>
               <ShieldCheck className="w-5 h-5 text-emerald-600" />
             </div>
 
             <div className="mt-4 font-bold text-slate-900 text-sm">
-              Practice Bounds Active
+              Practice Safeguards Active
             </div>
             <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              High-risk home visits & legal depositions require direct observation by field supervisor.
+              High-risk activities and home visits must be directly observed or co-practiced with your supervisor.
             </p>
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-            <span className="text-slate-400">Ethics Level: 400L Senior</span>
+            <span className="text-slate-400">Training Level: 400L Senior</span>
             <Link
               href={`/${tenantSlug}/student/guide`}
               className="text-emerald-600 font-semibold hover:underline"
             >
-              Check Rules →
+              Review Rules →
             </Link>
           </div>
         </div>
       </div>
 
       {/* Recent Practice Log Timeline */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
           <div>
             <h3 className="text-base font-bold text-slate-900">
-              My Practice Events Timeline
+              Recent Fieldwork Activities
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Verified records of your supervised activities and critical reflections.
+              Verified records of your supervised tasks and personal reflections.
             </p>
           </div>
 
@@ -217,10 +217,10 @@ export default async function StudentDashboard({ params }: StudentDashboardProps
         <div className="divide-y divide-slate-100">
           {events.map((event) => (
             <div key={event.id} className="py-4 first:pt-0 last:pb-0">
-              <div className="flex items-start justify-between gap-4">
-                <div>
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-900">
+                    <span className="text-xs sm:text-sm font-bold text-slate-900">
                       {event.activityTitle}
                     </span>
                     <span className="text-[11px] text-slate-400">•</span>
@@ -231,13 +231,13 @@ export default async function StudentDashboard({ params }: StudentDashboardProps
                   <p className="text-xs text-slate-600 mt-1 leading-relaxed">
                     {event.activityDescription}
                   </p>
-                  <p className="text-xs text-slate-500 italic mt-1 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                  <p className="text-xs text-slate-500 italic mt-1.5 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                     &quot;{event.criticalReflection}&quot;
                   </p>
                 </div>
 
-                <div className="text-right flex-shrink-0">
-                  <span className="inline-block text-xs font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <div className="sm:text-right flex-shrink-0 flex sm:flex-col items-center sm:items-end justify-between">
+                  <span className="inline-block text-xs font-bold px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
                     {formatMinutesToHours(event.verifiedMinutes)}
                   </span>
                   <div className="text-[10px] text-slate-400 mt-1">
@@ -251,7 +251,7 @@ export default async function StudentDashboard({ params }: StudentDashboardProps
                   {event.competenciesTagged.map((tag, i) => (
                     <span
                       key={i}
-                      className="text-[10px] font-medium bg-slate-100 text-slate-600 px-2 py-0.5 rounded"
+                      className="text-[10px] font-medium bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md"
                     >
                       {tag}
                     </span>
@@ -262,7 +262,7 @@ export default async function StudentDashboard({ params }: StudentDashboardProps
                   {event.verificationStatus === "VERIFIED" ? (
                     <span className="text-emerald-700 flex items-center gap-1">
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      Verified by Field Supervisor
+                      Verified by Supervisor
                     </span>
                   ) : (
                     <span className="text-amber-600">Awaiting Verification</span>

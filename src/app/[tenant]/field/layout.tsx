@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { FieldSidebar } from "@/components/layout/FieldSidebar";
 import { FieldHeader } from "@/components/layout/FieldHeader";
+import { SidebarProvider } from "@/components/layout/SidebarContext";
 
 export default async function FieldSupervisorLayout({
   children,
@@ -57,21 +58,23 @@ export default async function FieldSupervisorLayout({
     ) || 0;
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
-      <FieldSidebar
-        tenantSlug={params.tenant}
-        supervisorName={supervisorName}
-        agencyName={agencyName}
-        pendingCount={pendingCount}
-      />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <FieldHeader
+    <SidebarProvider>
+      <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
+        <FieldSidebar
+          tenantSlug={params.tenant}
           supervisorName={supervisorName}
           agencyName={agencyName}
           pendingCount={pendingCount}
         />
-        <main className="flex-1 overflow-y-auto p-6 md:p-8">{children}</main>
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <FieldHeader
+            supervisorName={supervisorName}
+            agencyName={agencyName}
+            pendingCount={pendingCount}
+          />
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8">{children}</main>
+        </div>
       </div>
-    </div>
+    </SidebarProvider>
   );
 }

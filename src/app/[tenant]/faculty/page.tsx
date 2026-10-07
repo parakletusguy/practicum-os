@@ -74,28 +74,28 @@ export default async function FacultyDashboardPage({
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
       {/* Banner */}
-      <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-blue-950 rounded-2xl p-8 text-white shadow-xl border border-slate-800 relative overflow-hidden">
+      <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-blue-950 rounded-2xl p-5 sm:p-8 text-white shadow-xl border border-slate-800 relative overflow-hidden">
         <div className="absolute right-0 top-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30 mb-3">
               <Building2 className="w-3.5 h-3.5" />
-              University Field Education Directorate
+              University Field Education
             </div>
-            <h1 className="text-3xl font-extrabold tracking-tight">
-              Academic Supervision & Oversight Caseload
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              Academic Supervisor Workspace
             </h1>
-            <p className="mt-2 text-slate-300 text-sm max-w-2xl leading-relaxed">
-              Conduct academic-field liaison, record physical and virtual supervision visits, monitor student integration into host agencies, and resolve early warning risk indicators.
+            <p className="mt-2 text-slate-300 text-xs sm:text-sm max-w-2xl leading-relaxed">
+              Oversee your assigned students, schedule supervision visits, and provide timely guidance throughout their fieldwork placement.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Link
               href={`/${params.tenant}/faculty/visits`}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-600/25 transition-all"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-600/25 transition-all"
             >
               <CalendarCheck className="w-4 h-4" />
-              Log Supervision Visit
+              Schedule Supervision Visit
             </Link>
           </div>
         </div>

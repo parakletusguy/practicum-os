@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { FacultySidebar } from "@/components/layout/FacultySidebar";
 import { FacultyHeader } from "@/components/layout/FacultyHeader";
+import { SidebarProvider } from "@/components/layout/SidebarContext";
 
 export default async function FacultySupervisorLayout({
   children,
@@ -49,21 +50,23 @@ export default async function FacultySupervisorLayout({
     ) || 0;
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
-      <FacultySidebar
-        tenantSlug={params.tenant}
-        facultyName={facultyName}
-        departmentName={departmentName}
-        activeAlertsCount={activeAlertsCount}
-      />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <FacultyHeader
+    <SidebarProvider>
+      <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
+        <FacultySidebar
+          tenantSlug={params.tenant}
           facultyName={facultyName}
           departmentName={departmentName}
           activeAlertsCount={activeAlertsCount}
         />
-        <main className="flex-1 overflow-y-auto p-6 md:p-8">{children}</main>
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <FacultyHeader
+            facultyName={facultyName}
+            departmentName={departmentName}
+            activeAlertsCount={activeAlertsCount}
+          />
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8">{children}</main>
+        </div>
       </div>
-    </div>
+    </SidebarProvider>
   );
 }

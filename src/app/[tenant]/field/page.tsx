@@ -70,7 +70,7 @@ export default async function FieldSupervisorDashboardPage({
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
       {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-850 to-emerald-950 rounded-2xl p-8 text-white shadow-xl border border-slate-800 relative overflow-hidden">
+      <div className="bg-gradient-to-r from-slate-900 via-slate-850 to-emerald-950 rounded-2xl p-5 sm:p-8 text-white shadow-xl border border-slate-800 relative overflow-hidden">
         <div className="absolute right-0 top-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
@@ -78,20 +78,20 @@ export default async function FieldSupervisorDashboardPage({
               <Building2 className="w-3.5 h-3.5" />
               {agencyName}
             </div>
-            <h1 className="text-3xl font-extrabold tracking-tight">
-              Field Practice Supervision Desk
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              Field Supervisor Workspace
             </h1>
-            <p className="mt-2 text-slate-300 text-sm max-w-2xl leading-relaxed">
-              Verify trainee clinical hours, supervise ethical practice events, review ScopeGuard compliance, and guide professional social work competencies under NASW / IFSW standards.
+            <p className="mt-2 text-slate-300 text-xs sm:text-sm max-w-2xl leading-relaxed">
+              Review and verify student fieldwork hours, monitor supervised tasks, and guide competency development in your agency.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Link
               href={`/${params.tenant}/field/verifications`}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-emerald-500 text-slate-950 hover:bg-emerald-400 shadow-lg shadow-emerald-500/25 transition-all"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-500 text-slate-950 hover:bg-emerald-400 shadow-lg shadow-emerald-500/25 transition-all"
             >
               <CheckCircle2 className="w-4 h-4" />
-              Open Verification Desk ({pendingEvents.length})
+              Review Hours ({pendingEvents.length} Pending)
             </Link>
           </div>
         </div>
