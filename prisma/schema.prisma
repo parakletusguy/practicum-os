@@ -20,6 +20,7 @@ model Person {
   firstName        String   @map("first_name")
   lastName         String   @map("last_name")
   email            String   @unique
+  authUserId       String?  @unique @map("auth_user_id") @db.Uuid
   phone            String?
   nationalIdHash   String?  @map("national_id_hash")
   avatarUrl        String?  @map("avatar_url")

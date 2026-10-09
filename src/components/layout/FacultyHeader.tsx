@@ -6,12 +6,14 @@ import { NotificationCenter } from "@/components/layout/NotificationCenter";
 import { useSidebar } from "@/components/layout/SidebarContext";
 
 interface FacultyHeaderProps {
+  tenantSlug: string;
   facultyName: string;
   departmentName: string;
   activeAlertsCount?: number;
 }
 
 export function FacultyHeader({
+  tenantSlug,
   facultyName,
   departmentName,
   activeAlertsCount = 0,
@@ -44,7 +46,7 @@ export function FacultyHeader({
         <div className="hidden sm:block">
           <NetworkStatusBadge />
         </div>
-        <NotificationCenter />
+        <NotificationCenter tenantSlug={tenantSlug} />
 
         {activeAlertsCount > 0 && (
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 border border-rose-200 text-rose-900 text-[11px] sm:text-xs font-semibold">

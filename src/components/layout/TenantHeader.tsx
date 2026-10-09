@@ -11,12 +11,14 @@ interface TenantHeaderProps {
   tenantSlug: string;
   currentRole?: string;
   userName?: string;
+  allowRoleSwitch?: boolean;
 }
 
 export function TenantHeader({
   tenantSlug,
   currentRole = "COORDINATOR",
   userName = "Dr. Adebayo Ogunlesi",
+  allowRoleSwitch = false,
 }: TenantHeaderProps) {
   const { toggle } = useSidebar();
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
@@ -57,7 +59,7 @@ export function TenantHeader({
       {/* Right side: Role switcher + sync badge + notifications + user */}
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Desktop Role Switcher */}
-        <div className="hidden lg:flex items-center gap-1.5 bg-slate-100/90 p-1 rounded-xl border border-slate-200">
+        {allowRoleSwitch && <div className="hidden lg:flex items-center gap-1.5 bg-slate-100/90 p-1 rounded-xl border border-slate-200">
           <Shield className="w-3.5 h-3.5 text-emerald-600 ml-1.5" />
           <span className="text-[11px] font-semibold text-slate-600">Switch View:</span>
           <div className="flex gap-1">
@@ -75,10 +77,10 @@ export function TenantHeader({
               </Link>
             ))}
           </div>
-        </div>
+        </div>}
 
         {/* Mobile / Tablet Role Switcher Dropdown */}
-        <div className="relative lg:hidden">
+        {allowRoleSwitch && <div className="relative lg:hidden">
           <button
             type="button"
             onClick={() => setRoleDropdownOpen(!roleDropdownOpen)}
@@ -110,7 +112,7 @@ export function TenantHeader({
               ))}
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Offline / Online Network Sync Badge */}
         <div className="hidden sm:block">

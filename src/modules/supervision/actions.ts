@@ -3,6 +3,9 @@
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { VerificationStatus, VisitType, AlertSeverity, AlertType } from "@prisma/client";
+import { AuthorizationError, requireAuthenticatedActor, requireTenantRole } from "@/lib/authz";
+import { isDemoMode } from "@/lib/runtime-mode";
+import { scanEarlyWarningsForCycle } from "./early-warning";
 
 // ==========================================
 // 1. PRACTICE EVENT VERIFICATION (FIELD SUPERVISOR)
@@ -15,7 +18,7 @@ export async function verifyPracticeEventAction(formData: FormData) {
     const supervisorNotes = formData.get("supervisorNotes") as string;
     const tenantSlug = formData.get("tenantSlug") as string;
 
-    if (!eventId || !status) {
+    if (!eventId || !status || !Object.values(VerificationStatus).includes(status)) {
       return { success: false, error: "Missing required parameters for verification." };
     }
 
@@ -34,6 +37,20 @@ export async function verifyPracticeEventAction(formData: FormData) {
     if (!event) {
       return { success: false, error: "Practice event not found." };
     }
+    if (event.verificationStatus !== VerificationStatus.PENDING) {
+      return { success: false, error: "Only pending practice events can be verified or queried." };
+    }
+
+    const tenant = await prisma.organisation.findUnique({ where: { slug: tenantSlug } });
+    if (!tenant || event.allocation.cycle.tenantId !== tenant.id) {
+      return { success: false, error: "Practice event not found for this institution." };
+    }
+    if (!isDemoMode()) {
+      const actor = await requireAuthenticatedActor();
+      if (event.allocation.fieldSupervisorId !== actor.id) {
+        throw new AuthorizationError("Only the assigned field supervisor may verify this event.");
+      }
+    }
 
     const updatedEvent = await prisma.practiceEvent.update({
       where: { id: eventId },
@@ -45,10 +62,6 @@ export async function verifyPracticeEventAction(formData: FormData) {
     });
 
     // Immutable Audit Log
-    const tenant = await prisma.organisation.findUnique({
-      where: { slug: tenantSlug },
-    });
-
     if (tenant) {
       await prisma.auditLog.create({
         data: {
@@ -99,6 +112,20 @@ export async function createSupervisionVisitAction(formData: FormData) {
 
     if (!allocationId || !generalObservations) {
       return { success: false, error: "Please provide all required visit details." };
+    }
+
+    const allocation = await prisma.placementAllocation.findFirst({
+      where: { id: allocationId, cycle: { tenant: { slug: tenantSlug } } },
+      select: { academicSupervisorId: true },
+    });
+    if (!allocation) {
+      return { success: false, error: "Placement allocation not found for this institution." };
+    }
+    if (!isDemoMode()) {
+      const actor = await requireAuthenticatedActor();
+      if (actor.id !== supervisorPersonId || allocation.academicSupervisorId !== actor.id) {
+        throw new AuthorizationError("Only the assigned academic supervisor may record this visit.");
+      }
     }
 
     const actionItems = rawActionItems
@@ -185,6 +212,20 @@ export async function resolveEarlyWarningAlertAction(formData: FormData) {
       return { success: false, error: "Alert ID is required." };
     }
 
+    const existingAlert = await prisma.earlyWarningAlert.findFirst({
+      where: { id: alertId, allocation: { cycle: { tenant: { slug: tenantSlug } } } },
+      include: { allocation: { select: { academicSupervisorId: true } } },
+    });
+    if (!existingAlert) {
+      return { success: false, error: "Alert not found for this institution." };
+    }
+    if (!isDemoMode()) {
+      const actor = await requireAuthenticatedActor();
+      if (existingAlert.allocation.academicSupervisorId !== actor.id) {
+        throw new AuthorizationError("Only the assigned academic supervisor may resolve this alert.");
+      }
+    }
+
     const alert = await prisma.earlyWarningAlert.update({
       where: { id: alertId },
       data: {
@@ -215,110 +256,12 @@ export async function resolveEarlyWarningAlertAction(formData: FormData) {
 
 export async function runEarlyWarningScanAction(cycleId: string, tenantSlug: string) {
   try {
-    const cycle = await prisma.practicumCycle.findUnique({
-      where: { id: cycleId },
-      include: {
-        allocations: {
-          where: { status: "ACTIVE" },
-          include: {
-            cohortStudent: {
-              include: { person: true },
-            },
-            practiceEvents: true,
-            supervisionVisits: true,
-            earlyWarningAlerts: {
-              where: { isResolved: false },
-            },
-          },
-        },
-      },
-    });
-
-    if (!cycle) {
-      return { success: false, error: "Cycle not found." };
+    if (!isDemoMode()) {
+      await requireTenantRole(tenantSlug, ["ACADEMIC_SUPERVISOR", "COORDINATOR", "INSTITUTION_ADMIN"]);
     }
 
-    let alertsGenerated = 0;
-    const now = new Date();
-    const cycleStart = new Date(cycle.startDate);
-    const cycleEnd = new Date(cycle.endDate);
-    const totalCycleDays = Math.max(1, (cycleEnd.getTime() - cycleStart.getTime()) / (1000 * 3600 * 24));
-    const elapsedDays = Math.max(0, Math.min(totalCycleDays, (now.getTime() - cycleStart.getTime()) / (1000 * 3600 * 24)));
-    const expectedHoursProportion = (elapsedDays / totalCycleDays) * cycle.requiredHours;
-
-    for (const alloc of cycle.allocations) {
-      const studentName = `${alloc.cohortStudent.person.firstName} ${alloc.cohortStudent.person.lastName}`;
-      const totalVerifiedMinutes = alloc.practiceEvents
-        .filter((e) => e.verificationStatus === "VERIFIED")
-        .reduce((sum, e) => sum + e.verifiedMinutes, 0);
-      const verifiedHours = totalVerifiedMinutes / 60;
-
-      // 1. Check Hours Lag: If elapsed > 20% and hours logged < 60% of expected
-      if (elapsedDays > 14 && expectedHoursProportion > 20) {
-        const hoursDeficit = expectedHoursProportion - verifiedHours;
-        const hasExistingHoursAlert = alloc.earlyWarningAlerts.some(
-          (a) => a.alertType === "HOURS_BEHIND_SCHEDULE"
-        );
-
-        if (hoursDeficit > 30 && !hasExistingHoursAlert) {
-          await prisma.earlyWarningAlert.create({
-            data: {
-              allocationId: alloc.id,
-              alertType: "HOURS_BEHIND_SCHEDULE",
-              severity: hoursDeficit > 60 ? "CRITICAL" : "HIGH",
-              title: `Hours Deficit: ${studentName} is ${Math.round(hoursDeficit)} hrs behind pace`,
-              description: `Student has completed ${verifiedHours.toFixed(1)} verified hours out of an expected ${Math.round(expectedHoursProportion)} hours at this milestone in the practicum cycle.`,
-            },
-          });
-          alertsGenerated++;
-        }
-      }
-
-      // 2. Check Overdue Logbook Entry: If no practice event logged in the past 14 days
-      const sortedEvents = [...alloc.practiceEvents].sort(
-        (a, b) => new Date(b.eventDate).getTime() - new Date(a.eventDate).getTime()
-      );
-      const lastEventDate = sortedEvents.length > 0 ? new Date(sortedEvents[0].eventDate) : null;
-      const daysSinceLastLog = lastEventDate
-        ? (now.getTime() - lastEventDate.getTime()) / (1000 * 3600 * 24)
-        : elapsedDays;
-
-      const hasExistingCadenceAlert = alloc.earlyWarningAlerts.some(
-        (a) => a.alertType === "OVERDUE_LOGBOOK_ENTRY"
-      );
-
-      if (daysSinceLastLog >= 14 && !hasExistingCadenceAlert) {
-        await prisma.earlyWarningAlert.create({
-          data: {
-            allocationId: alloc.id,
-            alertType: "OVERDUE_LOGBOOK_ENTRY",
-            severity: "MEDIUM",
-            title: `Logbook Inactivity: No entries from ${studentName} in ${Math.round(daysSinceLastLog)} days`,
-            description: `Trainee has not submitted any practice event since ${lastEventDate ? lastEventDate.toISOString().split("T")[0] : "cycle start"}. Immediate check-in advised.`,
-          },
-        });
-        alertsGenerated++;
-      }
-
-      // 3. Check Supervision Visit Milestone: If > 50% cycle elapsed and zero visits logged
-      const progressPercent = (elapsedDays / totalCycleDays) * 100;
-      const hasExistingVisitAlert = alloc.earlyWarningAlerts.some(
-        (a) => a.alertType === "MISSED_SUPERVISION_VISIT"
-      );
-
-      if (progressPercent >= 50 && alloc.supervisionVisits.length === 0 && !hasExistingVisitAlert) {
-        await prisma.earlyWarningAlert.create({
-          data: {
-            allocationId: alloc.id,
-            alertType: "MISSED_SUPERVISION_VISIT",
-            severity: "HIGH",
-            title: `Supervision Milestone Breach: Zero faculty visits for ${studentName}`,
-            description: `Practicum cycle is ${Math.round(progressPercent)}% elapsed, but no academic supervision visits have been documented for this placement.`,
-          },
-        });
-        alertsGenerated++;
-      }
-    }
+    const result = await scanEarlyWarningsForCycle(cycleId, tenantSlug);
+    if (!result.success) return result;
 
     revalidatePath(`/${tenantSlug}/faculty`);
     revalidatePath(`/${tenantSlug}/faculty/alerts`);
@@ -326,8 +269,8 @@ export async function runEarlyWarningScanAction(cycleId: string, tenantSlug: str
 
     return {
       success: true,
-      message: `Heuristic scan complete. Generated ${alertsGenerated} new alerts across ${cycle.allocations.length} active placements.`,
-      alertsGenerated,
+      message: `Heuristic scan complete. Generated ${result.alertsGenerated} new alerts across ${result.activePlacements} active placements.`,
+      alertsGenerated: result.alertsGenerated,
     };
   } catch (error: any) {
     console.error("runEarlyWarningScanAction error:", error);

@@ -77,7 +77,7 @@ export function PublicNavbar() {
             href="/unilag/admin"
             className="inline-flex items-center justify-center rounded-xl text-xs font-semibold transition-all bg-emerald-600 text-white hover:bg-emerald-700 h-9 px-4 py-2 shadow-sm shadow-emerald-600/20"
           >
-            University Portal
+            Open demo
             <ArrowRight className="ml-1.5 w-3.5 h-3.5" />
           </Link>
         </nav>
@@ -88,7 +88,7 @@ export function PublicNavbar() {
             href="/unilag/admin"
             className="inline-flex items-center text-xs font-semibold bg-emerald-600 text-white px-3 py-1.5 rounded-lg shadow-sm"
           >
-            Portal
+            Demo
           </Link>
           <button
             type="button"

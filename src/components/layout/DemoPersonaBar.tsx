@@ -69,14 +69,14 @@ export function DemoPersonaBar({ initialPersonaKey = "admin" }: DemoPersonaBarPr
   return (
     <aside aria-label="Demo Persona and Authentication Bar" className="bg-slate-950 text-slate-100 border-b border-slate-800 text-xs px-4 py-2 sticky top-0 z-50 shadow-md">
       <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
-        {/* Left Badge: Dual Mode Indicator */}
+          {/* Left Badge: preview-only role switcher */}
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold text-[11px]">
             <Sparkles className="w-3 h-3 text-emerald-400" />
-            Dual Auth Active
+            Demo role switcher
           </span>
           <span className="text-slate-400 hidden lg:inline text-[11px]">
-            Switch personas instantly or sign in:
+            Preview the seeded roles:
           </span>
         </div>
 
@@ -143,14 +143,14 @@ export function DemoPersonaBar({ initialPersonaKey = "admin" }: DemoPersonaBarPr
           </button>
         </div>
 
-        {/* Right Controls: Real Login Link & Collapse */}
+          {/* Right Controls: demo entry and collapse */}
         <div className="flex items-center gap-3">
           <a
             href="/auth/login"
             className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-emerald-400 font-medium transition-colors"
           >
             <LogIn className="w-3 h-3" />
-            <span className="hidden sm:inline">Sign In</span>
+            <span className="hidden sm:inline">Demo access</span>
           </a>
           <button
             onClick={() => setIsCollapsed(true)}

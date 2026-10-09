@@ -18,19 +18,29 @@ import {
 } from "lucide-react";
 import { DEMO_PERSONAS, DemoPersonaKey } from "@/lib/auth-personas";
 import { setActivePersonaAction } from "@/lib/auth-session";
+import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [loadingPersona, setLoadingPersona] = useState<DemoPersonaKey | null>(null);
   const [customAuthLoading, setCustomAuthLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const demoEnabled =
+    process.env.NODE_ENV !== "production" ||
+    process.env.NEXT_PUBLIC_PRACTICUM_DEMO_MODE === "true";
+  const authConfigured = Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+  );
 
   const handleDemoLogin = async (key: DemoPersonaKey) => {
     setLoadingPersona(key);
     try {
-      await setActivePersonaAction(key);
+      const result = await setActivePersonaAction(key);
+      if (!result.success) {
+        throw new Error(result.error || "Demo access is unavailable.");
+      }
       const targetPath = DEMO_PERSONAS[key].defaultPath;
       router.push(targetPath);
       router.refresh();
@@ -46,14 +56,45 @@ export default function LoginPage() {
     setCustomAuthLoading(true);
     setMessage(null);
 
-    // Simulate Supabase magic-link dispatch
-    setTimeout(() => {
+    if (!authConfigured) {
       setCustomAuthLoading(false);
       setMessage({
-        type: "success",
-        text: `Authentication link generated for ${email}. (Demo environment: you can also use 1-click persona logins below).`,
+        type: "error",
+        text: "Sign-in is not configured in this environment. Use local demo access or configure Supabase Auth.",
       });
-    }, 800);
+      return;
+    }
+
+    try {
+      const requestedPath = new URLSearchParams(window.location.search).get("next");
+      const nextPath =
+        requestedPath?.startsWith("/") && !requestedPath.startsWith("//")
+          ? requestedPath
+          : "/";
+      const redirectUrl = new URL("/auth/callback", window.location.origin);
+      redirectUrl.searchParams.set("next", nextPath);
+
+      const { error } = await createBrowserSupabaseClient().auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: redirectUrl.toString() },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      setMessage({
+        type: "success",
+        text: "Check your email for a sign-in link. It will return you to PracticumOS.",
+      });
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Unable to send the sign-in link.",
+      });
+    } finally {
+      setCustomAuthLoading(false);
+    }
   };
 
   return (
@@ -78,19 +119,19 @@ export default function LoginPage() {
       </div>
 
       <div className="sm:mx-auto sm:w-full sm:max-w-2xl relative z-10 space-y-8">
-        {/* SECTION 1: 1-Click Instant Demo Persona Logins */}
+        {demoEnabled && (
         <div className="bg-slate-800/80 backdrop-blur border border-slate-700 rounded-2xl p-6 sm:p-8 shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
               <Sparkles className="w-4 h-4 text-emerald-400" />
-              <span>Recommended: Instant 1-Click Demo Personas</span>
+              <span>Preview: seeded demo roles</span>
             </div>
             <span className="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-semibold">
-              Zero Setup
+              Local preview
             </span>
           </div>
           <p className="text-xs text-slate-400 mb-6">
-            Test any role in the 30-step practicum lifecycle instantly without entering passwords:
+            Explore seeded sample data. These buttons do not authenticate a real user and are disabled in production.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -171,19 +212,22 @@ export default function LoginPage() {
             </button>
           </div>
         </div>
+        )}
 
-        {/* SECTION 2: Custom Institutional Credentials */}
+        {/* Production authentication */}
         <div className="bg-slate-800/40 backdrop-blur border border-slate-700/60 rounded-2xl p-6 sm:p-8">
           <h3 className="text-sm font-bold text-slate-300 mb-1 flex items-center gap-2">
             <Lock className="w-4 h-4 text-slate-400" />
-            Institutional Single Sign-On (SSO / Supabase Auth)
+            Institutional sign-in
           </h3>
           <p className="text-xs text-slate-500 mb-6">
-            Enter your university email address to receive a secure login link.
+            Enter your university email address to receive a secure sign-in link.
           </p>
 
           {message && (
             <div
+              role="status"
+              aria-live="polite"
               className={`mb-4 p-3 rounded-xl text-xs flex items-center gap-2 ${
                 message.type === "success"
                   ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
@@ -230,7 +274,7 @@ export default function LoginPage() {
                 disabled={customAuthLoading}
                 className="inline-flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white font-semibold text-xs px-4 py-2.5 rounded-xl transition-all shadow-sm"
               >
-                {customAuthLoading ? "Sending Link..." : "Send Magic Link"}
+                {customAuthLoading ? "Sending Link..." : "Send Sign-in Link"}
               </button>
             </div>
           </form>

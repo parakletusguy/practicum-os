@@ -24,7 +24,7 @@ export function LogbookModalClient({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadedEvidence, setUploadedEvidence] = useState<{
-    url: string;
+    storagePath: string;
     checksum: string;
     name: string;
     size: number;
@@ -94,6 +94,7 @@ export function LogbookModalClient({
     try {
       const data = new FormData();
       data.append("file", file);
+      data.append("allocationId", allocationId);
       const res = await fetch("/api/storage/upload", {
         method: "POST",
         body: data,
@@ -101,7 +102,7 @@ export function LogbookModalClient({
       const result = await res.json();
       if (res.ok && result.success) {
         setUploadedEvidence({
-          url: result.url,
+          storagePath: result.storagePath,
           checksum: result.checksum,
           name: result.sanitizedFilename,
           size: result.fileSizeBytes,
@@ -125,7 +126,7 @@ export function LogbookModalClient({
         tenantSlug,
         allocationId,
         ...formData,
-        evidenceUrl: uploadedEvidence?.url,
+        evidenceUrl: uploadedEvidence?.storagePath,
       });
 
       if (res.success) {
@@ -375,19 +376,11 @@ export function LogbookModalClient({
                           {uploadedEvidence.name}
                         </div>
                         <div className="text-[10px] text-slate-500">
-                          {(uploadedEvidence.size / 1024).toFixed(1)} KB • Encrypted & Protected
+                          {(uploadedEvidence.size / 1024).toFixed(1)} KB • Attached for supervisor review
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 ml-2">
-                      <a
-                        href={uploadedEvidence.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs font-semibold text-emerald-600 hover:text-emerald-800"
-                      >
-                        View
-                      </a>
                       <button
                         type="button"
                         onClick={() => setUploadedEvidence(null)}

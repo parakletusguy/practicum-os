@@ -26,7 +26,7 @@ export function NotificationCenter({ tenantSlug = "unilag" }: { tenantSlug?: str
   const fetchAlerts = async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/notifications");
+      const res = await fetch(`/api/notifications?tenant=${encodeURIComponent(tenantSlug)}`);
       const data = await res.json();
       if (res.ok && data.success) {
         setAlerts(data.alerts);
@@ -43,7 +43,7 @@ export function NotificationCenter({ tenantSlug = "unilag" }: { tenantSlug?: str
     fetchAlerts();
     const interval = setInterval(fetchAlerts, 30000); // 30s poll
     return () => clearInterval(interval);
-  }, []);
+  }, [tenantSlug]);
 
   // Close on outside click
   useEffect(() => {

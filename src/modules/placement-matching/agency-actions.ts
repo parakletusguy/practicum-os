@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { OrgType } from "@prisma/client";
+import { OrgType, SystemRole } from "@prisma/client";
+import { requireTenantRole } from "@/lib/authz";
+import { isDemoMode } from "@/lib/runtime-mode";
+
+const AGENCY_ADMIN_ROLES = [SystemRole.COORDINATOR, SystemRole.INSTITUTION_ADMIN];
 
 export async function createPartnerAgencyAction(data: {
   tenantSlug: string;
@@ -21,6 +25,12 @@ export async function createPartnerAgencyAction(data: {
     if (!tenant) {
       return { success: false, error: "Tenant not found" };
     }
+    const authorization = !isDemoMode()
+      ? await requireTenantRole(data.tenantSlug, AGENCY_ADMIN_ROLES)
+      : null;
+    if (!data.name.trim()) {
+      return { success: false, error: "Agency name is required." };
+    }
 
     const slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
@@ -35,6 +45,17 @@ export async function createPartnerAgencyAction(data: {
         phone: data.phone || null,
         address: data.address || null,
         city: data.city || "Lagos",
+      },
+    });
+
+    await db.auditLog.create({
+      data: {
+        tenantId: tenant.id,
+        actorPersonId: authorization?.actor.id,
+        actionType: "PARTNER_AGENCY_CREATED",
+        resourceType: "Organisation",
+        resourceId: agency.id,
+        afterState: { name: agency.name, orgType: agency.orgType },
       },
     });
 
@@ -57,17 +78,50 @@ export async function createPlacementOfferAction(data: {
   requirements?: string;
 }) {
   try {
+    const tenant = await db.organisation.findUnique({ where: { slug: data.tenantSlug } });
+    if (!tenant) return { success: false, error: "Tenant not found." };
+    const authorization = !isDemoMode()
+      ? await requireTenantRole(data.tenantSlug, AGENCY_ADMIN_ROLES)
+      : null;
+    const cycle = await db.practicumCycle.findFirst({
+      where: { id: data.cycleId, tenantId: tenant.id },
+      select: { id: true },
+    });
+    if (!cycle) return { success: false, error: "Practicum cycle not found for this institution." };
+    const hostOrganisation = await db.organisation.findFirst({
+      where: { id: data.hostOrgId, tenantId: tenant.id },
+      select: { id: true },
+    });
+    if (!hostOrganisation) return { success: false, error: "Partner agency not found for this institution." };
+    const totalSlots = Number(data.totalSlots);
+    if (!Number.isInteger(totalSlots) || totalSlots < 1 || totalSlots > 1_000) {
+      return { success: false, error: "Total slots must be a whole number between 1 and 1,000." };
+    }
+    if (!Array.isArray(data.practiceAreas) || data.practiceAreas.length === 0) {
+      return { success: false, error: "At least one practice area is required." };
+    }
     const offer = await db.placementOffer.create({
       data: {
-        cycleId: data.cycleId,
-        hostOrgId: data.hostOrgId,
-        totalSlots: Number(data.totalSlots) || 1,
-        availableSlots: Number(data.totalSlots) || 1,
-        practiceAreas: data.practiceAreas,
+        cycleId: cycle.id,
+        hostOrgId: hostOrganisation.id,
+        totalSlots,
+        availableSlots: totalSlots,
+        practiceAreas: data.practiceAreas.map((area) => area.trim()).filter(Boolean),
         contactPerson: data.contactPerson || null,
         contactPhone: data.contactPhone || null,
         requirements: data.requirements || null,
         status: "CONFIRMED",
+      },
+    });
+
+    await db.auditLog.create({
+      data: {
+        tenantId: tenant.id,
+        actorPersonId: authorization?.actor.id,
+        actionType: "PLACEMENT_OFFER_CREATED",
+        resourceType: "PlacementOffer",
+        resourceId: offer.id,
+        afterState: { cycleId: cycle.id, hostOrgId: hostOrganisation.id, totalSlots },
       },
     });
 

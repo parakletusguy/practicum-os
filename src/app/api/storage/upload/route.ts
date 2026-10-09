@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
+import { db } from "@/lib/db";
+import { AuthenticationError, AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
+import { getSupabasePublicConfig, isDemoMode } from "@/lib/runtime-mode";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_MIME_TYPES = [
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
   "image/png",
   "image/jpeg",
@@ -11,83 +14,82 @@ const ALLOWED_MIME_TYPES = [
   "text/plain",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-];
+]);
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const file = formData.get("file") as File | null;
+    const file = formData.get("file");
+    const allocationId = formData.get("allocationId");
 
-    if (!file) {
-      return NextResponse.json({ error: "No file provided in form data." }, { status: 400 });
-    }
-
-    if (file.size > MAX_FILE_SIZE) {
+    if (!(file instanceof File) || typeof allocationId !== "string" || !allocationId) {
       return NextResponse.json(
-        { error: "File size exceeds the 10MB limit." },
+        { error: "A file and placement allocation are required." },
         { status: 400 }
       );
     }
 
-    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-      return NextResponse.json(
-        { error: `File type '${file.type}' is not supported. Please upload a PDF, PNG, JPG, or DOCX.` },
-        { status: 400 }
-      );
+    if (file.size === 0 || file.size > MAX_FILE_SIZE) {
+      return NextResponse.json({ error: "Files must be between 1 byte and 10MB." }, { status: 400 });
+    }
+    if (!ALLOWED_MIME_TYPES.has(file.type)) {
+      return NextResponse.json({ error: "This file type is not supported." }, { status: 400 });
     }
 
-    // Convert file to ArrayBuffer and Buffer
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const allocation = await db.placementAllocation.findUnique({
+      where: { id: allocationId },
+      select: { id: true, studentPersonId: true },
+    });
+    if (!allocation) {
+      return NextResponse.json({ error: "Placement allocation not found." }, { status: 404 });
+    }
 
-    // Compute cryptographic SHA-256 tamper-evident checksum
+    if (!isDemoMode()) {
+      const actor = await requireAuthenticatedActor();
+      if (allocation.studentPersonId !== actor.id) {
+        throw new AuthorizationError("You may only upload evidence for your own placement.");
+      }
+    }
+
+    const config = getSupabasePublicConfig();
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!config || !serviceRoleKey) {
+      return NextResponse.json({ error: "Evidence storage is not configured." }, { status: 503 });
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
     const checksum = crypto.createHash("sha256").update(buffer).digest("hex");
+    const extension = file.name.split(".").pop()?.toLowerCase() || "bin";
+    const storagePath = `${allocation.id}/${crypto.randomUUID()}.${extension}`;
+    const supabase = createClient(config.url, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
 
-    // Sanitize filename to prevent PII exposure in URLs
-    const extension = file.name.split(".").pop()?.toLowerCase() || "pdf";
-    const sanitizedKey = `evidence_${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${extension}`;
-
-    // Initialize Supabase Admin Client
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Upload to Supabase Storage bucket 'evidence-vault'
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from("evidence-vault")
-      .upload(sanitizedKey, buffer, {
-        contentType: file.type,
-        upsert: true,
-      });
-
-    if (uploadError) {
-      console.error("Supabase Storage upload error:", uploadError);
-      return NextResponse.json(
-        { error: `Storage upload failed: ${uploadError.message}` },
-        { status: 500 }
-      );
+    const { data, error } = await supabase.storage.from("evidence-vault").upload(storagePath, buffer, {
+      contentType: file.type,
+      upsert: false,
+    });
+    if (error) {
+      console.error("Evidence storage upload error:", error);
+      return NextResponse.json({ error: "Evidence upload failed." }, { status: 500 });
     }
-
-    // Get Public URL
-    const { data: urlData } = supabase.storage
-      .from("evidence-vault")
-      .getPublicUrl(sanitizedKey);
 
     return NextResponse.json({
       success: true,
-      url: urlData.publicUrl,
-      storagePath: uploadData.path,
+      storagePath: data.path,
       checksum,
-      sanitizedFilename: sanitizedKey,
-      originalFilename: file.name,
       fileSizeBytes: file.size,
       mimeType: file.type,
     });
-  } catch (error: any) {
-    console.error("Evidence Vault upload handler exception:", error);
-    return NextResponse.json(
-      { error: error?.message || "Internal server error during upload." },
-      { status: 500 }
-    );
+  } catch (error) {
+    if (error instanceof AuthenticationError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+
+    console.error("Evidence upload handler exception:", error);
+    return NextResponse.json({ error: "Internal server error during upload." }, { status: 500 });
   }
 }

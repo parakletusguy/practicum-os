@@ -2,6 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
+import { SystemRole } from "@prisma/client";
+import { requireTenantRole } from "@/lib/authz";
+import { isDemoMode } from "@/lib/runtime-mode";
 
 export interface StudentImportRecord {
   firstName: string;
@@ -26,6 +29,19 @@ export async function importCohortStudentsAction(data: {
 
     if (!tenant) {
       return { success: false, error: "Tenant not found" };
+    }
+    const authorization = !isDemoMode()
+      ? await requireTenantRole(data.tenantSlug, [SystemRole.COORDINATOR, SystemRole.INSTITUTION_ADMIN])
+      : null;
+    const cycle = await db.practicumCycle.findFirst({
+      where: { id: data.cycleId, tenantId: tenant.id },
+      select: { id: true },
+    });
+    if (!cycle) {
+      return { success: false, error: "Practicum cycle not found for this institution." };
+    }
+    if (!Array.isArray(data.students) || data.students.length === 0 || data.students.length > 500) {
+      return { success: false, error: "Provide between 1 and 500 student records per import." };
     }
 
     let importedCount = 0;
@@ -107,6 +123,17 @@ export async function importCohortStudentsAction(data: {
     revalidatePath(`/${data.tenantSlug}/admin/cohort`);
     revalidatePath(`/${data.tenantSlug}/admin/matching`);
     revalidatePath(`/${data.tenantSlug}/admin`);
+
+    await db.auditLog.create({
+      data: {
+        tenantId: tenant.id,
+        actorPersonId: authorization?.actor.id,
+        actionType: "COHORT_IMPORTED",
+        resourceType: "PracticumCycle",
+        resourceId: cycle.id,
+        afterState: { importedCount, skippedCount },
+      },
+    });
 
     return {
       success: true,

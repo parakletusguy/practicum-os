@@ -1,6 +1,9 @@
 import { ReactNode } from "react";
-import { notFound } from "next/navigation";
-import { prisma } from "@/lib/db";
+import { notFound, redirect } from "next/navigation";
+import { SystemRole } from "@prisma/client";
+import { db } from "@/lib/db";
+import { requireTenantRole } from "@/lib/authz";
+import { isDemoMode } from "@/lib/runtime-mode";
 import { FieldSidebar } from "@/components/layout/FieldSidebar";
 import { FieldHeader } from "@/components/layout/FieldHeader";
 import { SidebarProvider } from "@/components/layout/SidebarContext";
@@ -12,32 +15,34 @@ export default async function FieldSupervisorLayout({
   children: ReactNode;
   params: { tenant: string };
 }) {
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
+  const demoMode = isDemoMode();
+  let actorId: string | null = null;
+  let tenantId: string | null = null;
 
-  if (!tenant) {
-    notFound();
+  if (demoMode) {
+    const tenant = await db.organisation.findUnique({ where: { slug: params.tenant } });
+    if (!tenant) notFound();
+    tenantId = tenant.id;
+  } else {
+    try {
+      const { actor, tenant } = await requireTenantRole(params.tenant, [SystemRole.FIELD_SUPERVISOR]);
+      actorId = actor.id;
+      tenantId = tenant.id;
+    } catch {
+      redirect("/auth/login?error=access");
+    }
   }
 
-  // Find the primary field supervisor for this tenant or default to Ngozi Okonkwo
-  const fieldSupervisor = await prisma.person.findFirst({
-    where: {
-      roleMemberships: {
-        some: {
-          role: "FIELD_SUPERVISOR",
-        },
-      },
-    },
+  const fieldSupervisor = await db.person.findFirst({
+    where: demoMode
+      ? { roleMemberships: { some: { role: "FIELD_SUPERVISOR" } } }
+      : { id: actorId! },
     include: {
       fieldSupervisedAllocations: {
+        where: { cycle: { tenantId: tenantId! } },
         include: {
           hostOrg: true,
-          practiceEvents: {
-            where: {
-              verificationStatus: "PENDING",
-            },
-          },
+          practiceEvents: { where: { verificationStatus: "PENDING" } },
         },
       },
     },
@@ -46,14 +51,12 @@ export default async function FieldSupervisorLayout({
   const supervisorName = fieldSupervisor
     ? `${fieldSupervisor.firstName} ${fieldSupervisor.lastName}`
     : "Field Supervisor";
-
   const agencyName =
     fieldSupervisor?.fieldSupervisedAllocations[0]?.hostOrg?.name ||
-    "Lagos State Ministry of Youth & Social Development";
-
+    "Assigned field agency";
   const pendingCount =
     fieldSupervisor?.fieldSupervisedAllocations.reduce(
-      (sum, alloc) => sum + alloc.practiceEvents.length,
+      (sum, allocation) => sum + allocation.practiceEvents.length,
       0
     ) || 0;
 
@@ -68,6 +71,7 @@ export default async function FieldSupervisorLayout({
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <FieldHeader
+            tenantSlug={params.tenant}
             supervisorName={supervisorName}
             agencyName={agencyName}
             pendingCount={pendingCount}

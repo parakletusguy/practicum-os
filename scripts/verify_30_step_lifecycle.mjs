@@ -4,7 +4,17 @@
 import { PrismaClient } from "@prisma/client";
 import crypto from "crypto";
 
-const prisma = new PrismaClient();
+const e2eDatabaseUrl = process.env.PRACTICUM_E2E_DATABASE_URL;
+
+if (!e2eDatabaseUrl) {
+  throw new Error(
+    "Refusing to run lifecycle fixtures without PRACTICUM_E2E_DATABASE_URL. Use an isolated test database; this script creates and removes records."
+  );
+}
+
+const prisma = new PrismaClient({
+  datasources: { db: { url: e2eDatabaseUrl } },
+});
 
 function assert(condition, message) {
   if (!condition) {

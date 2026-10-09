@@ -1,52 +1,21 @@
+"use server";
+
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import { AssessmentStage, CycleStatus, EvaluatorType, Prisma, SystemRole } from "@prisma/client";
+import { AuthorizationError, requireAuthenticatedActor, requireTenantRole } from "@/lib/authz";
+import { isDemoMode } from "@/lib/runtime-mode";
+import { calculateLetterGrade, DEFAULT_GRADING_FORMULA, type GradingFormulaConfig } from "./formula";
 
-export interface GradingFormulaConfig {
-  components: {
-    name: string;
-    weight: number; // e.g. 0.40
-    key: "fieldEval" | "academicEval" | "logbookHours" | "reports";
-  }[];
-  gradeScale: {
-    [letter: string]: [number, number]; // [min, max]
-  };
-}
-
-export const DEFAULT_GRADING_FORMULA: GradingFormulaConfig = {
-  components: [
-    { name: "Field Supervisor Evaluation", weight: 0.40, key: "fieldEval" },
-    { name: "Academic Supervisor Review", weight: 0.30, key: "academicEval" },
-    { name: "Verified E-Logbook & Hours", weight: 0.20, key: "logbookHours" },
-    { name: "Comprehensive Reflective Report", weight: 0.10, key: "reports" },
-  ],
-  gradeScale: {
-    A: [70, 100],
-    B: [60, 69.99],
-    C: [50, 59.99],
-    D: [45, 49.99],
-    F: [0, 44.99],
-  },
-};
-
-/**
- * Determine letter grade from composite score based on institution scale
- */
-export function calculateLetterGrade(score: number, scale = DEFAULT_GRADING_FORMULA.gradeScale): string {
-  for (const [letter, [min, max]] of Object.entries(scale)) {
-    if (score >= min && score <= max) {
-      return letter;
-    }
-  }
-  return score >= 70 ? "A" : score >= 60 ? "B" : score >= 50 ? "C" : score >= 45 ? "D" : "F";
-}
+const GRADING_ADMIN_ROLES = [SystemRole.COORDINATOR, SystemRole.INSTITUTION_ADMIN];
 
 /**
  * Run dynamic formula evaluation for all cohort students in a cycle
  */
 export async function calculateCohortGradesAction(cycleId: string, tenantSlug: string) {
   try {
-    const cycle = await prisma.practicumCycle.findUnique({
-      where: { id: cycleId },
+    const cycle = await prisma.practicumCycle.findFirst({
+      where: { id: cycleId, tenant: { slug: tenantSlug } },
       include: {
         students: {
           include: {
@@ -65,15 +34,26 @@ export async function calculateCohortGradesAction(cycleId: string, tenantSlug: s
     });
 
     if (!cycle) {
-      return { success: false, error: "Cycle not found." };
+      return { success: false, error: "Cycle not found for this institution." };
+    }
+    const authorization = !isDemoMode()
+      ? await requireTenantRole(tenantSlug, GRADING_ADMIN_ROLES)
+      : null;
+    if (cycle.status !== CycleStatus.GRADING) {
+      return { success: false, error: "Grades can only be calculated while the cycle is in GRADING." };
     }
 
     const formula = (cycle.gradingFormula as unknown as GradingFormulaConfig) || DEFAULT_GRADING_FORMULA;
     const requiredHours = cycle.requiredHours || 400;
 
     let updatedCount = 0;
+    let lockedCount = 0;
 
     for (const student of cycle.students) {
+      if (student.grade?.isApproved) {
+        lockedCount++;
+        continue;
+      }
       const alloc = student.allocation;
 
       let logbookHoursScore = 0;
@@ -153,12 +133,23 @@ export async function calculateCohortGradesAction(cycleId: string, tenantSlug: s
       updatedCount++;
     }
 
+    await prisma.auditLog.create({
+      data: {
+        tenantId: cycle.tenantId,
+        actorPersonId: authorization?.actor.id,
+        actionType: "COHORT_GRADES_CALCULATED",
+        resourceType: "PracticumCycle",
+        resourceId: cycle.id,
+        afterState: { updatedCount, lockedCount },
+      },
+    });
+
     revalidatePath(`/${tenantSlug}/admin/grading`);
     revalidatePath(`/${tenantSlug}/student`);
 
     return {
       success: true,
-      message: `Calculated dynamic composite scores and letter grades for ${updatedCount} students.`,
+      message: `Calculated dynamic composite scores and letter grades for ${updatedCount} students; ${lockedCount} approved grade(s) were left unchanged.`,
       updatedCount,
     };
   } catch (error: any) {
@@ -188,13 +179,61 @@ export async function submitAssessmentEvaluationAction(formData: FormData) {
       return { success: false, error: "Please complete all required evaluation criteria." };
     }
 
-    const rubricPayload = rubricPayloadJson ? JSON.parse(rubricPayloadJson) : {};
+    if (!cycleId || !tenantSlug || !evaluatorPersonId || !Object.values(EvaluatorType).includes(evaluatorType)) {
+      return { success: false, error: "Missing or invalid evaluation details." };
+    }
+    if (!Object.values(AssessmentStage).includes(stage || "FINAL") || !Number.isFinite(maxScore) || maxScore <= 0 || totalScore < 0 || totalScore > maxScore) {
+      return { success: false, error: "Assessment scores or stage are invalid." };
+    }
+    let rubricPayload: Prisma.InputJsonValue = {};
+    try {
+      const parsed = rubricPayloadJson ? JSON.parse(rubricPayloadJson) : {};
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { success: false, error: "Assessment rubric must be an object." };
+      }
+      rubricPayload = parsed as Prisma.InputJsonValue;
+    } catch {
+      return { success: false, error: "Assessment rubric is not valid JSON." };
+    }
+
+    const allocation = await prisma.placementAllocation.findFirst({
+      where: {
+        id: allocationId,
+        cycleId,
+        cycle: { tenant: { slug: tenantSlug } },
+      },
+      select: {
+        cohortStudentId: true,
+        fieldSupervisorId: true,
+        academicSupervisorId: true,
+        cycle: { select: { status: true } },
+      },
+    });
+    if (!allocation) return { success: false, error: "Placement allocation not found for this institution." };
+    if (allocation.cycle.status !== CycleStatus.ASSESSMENT && allocation.cycle.status !== CycleStatus.GRADING) {
+      return { success: false, error: "Assessments may only be submitted during ASSESSMENT or GRADING." };
+    }
+    const existingGrade = await prisma.cohortGrade.findUnique({ where: { cohortStudentId: allocation.cohortStudentId } });
+    if (existingGrade?.isApproved) {
+      return { success: false, error: "This student's grade has already been approved and cannot be changed." };
+    }
+    let actorId = evaluatorPersonId;
+    if (!isDemoMode()) {
+      const actor = await requireAuthenticatedActor();
+      actorId = actor.id;
+      const assignedSupervisor = evaluatorType === EvaluatorType.FIELD_SUPERVISOR
+        ? allocation.fieldSupervisorId
+        : allocation.academicSupervisorId;
+      if (actor.id !== evaluatorPersonId || actor.id !== assignedSupervisor) {
+        throw new AuthorizationError("Only the assigned supervisor may submit this assessment.");
+      }
+    }
 
     const submission = await prisma.assessmentSubmission.create({
       data: {
         cycleId,
         allocationId,
-        evaluatorPersonId,
+        evaluatorPersonId: actorId,
         evaluatorType,
         stage: stage || "FINAL",
         rubricPayload,
@@ -205,8 +244,16 @@ export async function submitAssessmentEvaluationAction(formData: FormData) {
       },
     });
 
-    // Automatically recalculate cohort grades to incorporate the new assessment score
-    await calculateCohortGradesAction(cycleId, tenantSlug);
+    await prisma.auditLog.create({
+      data: {
+        tenantId: (await prisma.practicumCycle.findUnique({ where: { id: cycleId }, select: { tenantId: true } }))?.tenantId,
+        actorPersonId: actorId,
+        actionType: "ASSESSMENT_SUBMITTED",
+        resourceType: "AssessmentSubmission",
+        resourceId: submission.id,
+        afterState: { allocationId, evaluatorType, stage: stage || "FINAL", totalScore, maxScore },
+      },
+    });
 
     revalidatePath(`/${tenantSlug}/field/evaluations`);
     revalidatePath(`/${tenantSlug}/faculty/evaluations`);
@@ -214,7 +261,7 @@ export async function submitAssessmentEvaluationAction(formData: FormData) {
 
     return {
       success: true,
-      message: "Official clinical assessment rubric submitted and factored into cohort grades.",
+      message: "Official clinical assessment rubric submitted. A coordinator can recalculate provisional grades during GRADING.",
       submission,
     };
   } catch (error: any) {
@@ -237,43 +284,52 @@ export async function approveCohortGradeAction(formData: FormData) {
       return { success: false, error: "Grade ID is required." };
     }
 
+    const existingGrade = await prisma.cohortGrade.findFirst({
+      where: { id: gradeId, cycle: { tenant: { slug: tenantSlug } } },
+      include: { cycle: { select: { tenantId: true, status: true } }, cohortStudent: { include: { person: true } } },
+    });
+    if (!existingGrade) return { success: false, error: "Grade not found for this institution." };
+    if (existingGrade.isApproved) return { success: false, error: "This grade is already approved and locked." };
+    if (existingGrade.cycle.status !== CycleStatus.GRADING) {
+      return { success: false, error: "Grades can only be approved while the cycle is in GRADING." };
+    }
+    let actorId = approverPersonId;
+    if (!isDemoMode()) {
+      const authorization = await requireTenantRole(tenantSlug, GRADING_ADMIN_ROLES);
+      actorId = authorization.actor.id;
+      if (approverPersonId && approverPersonId !== actorId) {
+        throw new AuthorizationError("Grade approval must be recorded under the signed-in approver.");
+      }
+    }
+
     const grade = await prisma.cohortGrade.update({
-      where: { id: gradeId },
+      where: { id: existingGrade.id },
       data: {
         isApproved: true,
-        approvedByPersonId: approverPersonId || null,
+        approvedByPersonId: actorId || null,
         approvedAt: new Date(),
         moderationRemarks: moderationRemarks || "Approved by Department Board of Examiners.",
       },
-      include: {
-        cohortStudent: {
-          include: { person: true },
-        },
-      },
+      include: { cohortStudent: { include: { person: true } } },
     });
 
     // Immutable Audit Entry
-    const tenant = await prisma.organisation.findUnique({
-      where: { slug: tenantSlug },
-    });
-
-    if (tenant) {
-      await prisma.auditLog.create({
-        data: {
-          tenantId: tenant.id,
-          actorPersonId: approverPersonId,
-          actionType: "GRADE_MODERATED_AND_APPROVED",
-          resourceType: "CohortGrade",
-          resourceId: gradeId,
-          afterState: {
-            compositeScore: grade.compositeScore,
-            letterGrade: grade.letterGrade,
-            isApproved: true,
-            approvedAt: new Date(),
-          },
+    await prisma.auditLog.create({
+      data: {
+        tenantId: existingGrade.cycle.tenantId,
+        actorPersonId: actorId || null,
+        actionType: "GRADE_MODERATED_AND_APPROVED",
+        resourceType: "CohortGrade",
+        resourceId: gradeId,
+        beforeState: { isApproved: false, compositeScore: existingGrade.compositeScore, letterGrade: existingGrade.letterGrade },
+        afterState: {
+          compositeScore: grade.compositeScore,
+          letterGrade: grade.letterGrade,
+          isApproved: true,
+          approvedAt: grade.approvedAt,
         },
-      });
-    }
+      },
+    });
 
     revalidatePath(`/${tenantSlug}/admin/grading`);
     revalidatePath(`/${tenantSlug}/student`);

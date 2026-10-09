@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { PracticeScopeLevel, VerificationStatus, AlertType, AlertSeverity } from "@prisma/client";
 import { evaluateScopeGuard } from "@/modules/scope-guard/policy";
 import { generateEventChecksum, validateClientDeidentification } from "@/modules/evidence-vault/sanitizer";
+import { AuthenticationError, AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
+import { isDemoMode } from "@/lib/runtime-mode";
 
 export async function createPracticeEventAction(data: {
   tenantSlug: string;
@@ -22,6 +24,29 @@ export async function createPracticeEventAction(data: {
   evidenceUrl?: string;
 }) {
   try {
+    const allocation = await db.placementAllocation.findFirst({
+      where: {
+        id: data.allocationId,
+        cycle: { tenant: { slug: data.tenantSlug } },
+      },
+      select: { id: true, studentPersonId: true },
+    });
+    if (!allocation) {
+      return { success: false, error: "Placement allocation not found for this institution." };
+    }
+
+    if (!isDemoMode()) {
+      const actor = await requireAuthenticatedActor();
+      if (actor.id !== allocation.studentPersonId) {
+        throw new AuthorizationError("You may only create practice events for your own placement.");
+      }
+    }
+
+    const evidencePath = data.evidenceUrl?.trim();
+    if (evidencePath && !evidencePath.startsWith(`${allocation.id}/`)) {
+      return { success: false, error: "Evidence attachment is not valid for this placement." };
+    }
+
     // 1. Calculate duration in minutes
     const [startH, startM] = data.startTime.split(":").map(Number);
     const [endH, endM] = data.endTime.split(":").map(Number);
@@ -36,6 +61,23 @@ export async function createPracticeEventAction(data: {
 
     // 3. Evaluate ScopeGuard clinical safety policy
     const scopeCheck = evaluateScopeGuard(data.activityTitle, data.category, data.scopeLevel);
+
+    if (!scopeCheck.allowed) {
+      await db.earlyWarningAlert.create({
+        data: {
+          allocationId: allocation.id,
+          alertType: AlertType.SCOPE_GUARD_FLAG,
+          severity: scopeCheck.violationSeverity === "HIGH" ? AlertSeverity.HIGH : AlertSeverity.MEDIUM,
+          title: `ScopeGuard blocked: ${data.activityTitle}`,
+          description: `A trainee attempted an activity requiring ${scopeCheck.rule?.allowedScope} as ${data.scopeLevel}. ${scopeCheck.rule?.rationale}`,
+        },
+      });
+
+      return {
+        success: false,
+        error: `This activity requires ${scopeCheck.rule?.allowedScope?.replace("_", " ").toLowerCase()}. Your supervisor has been notified.`,
+      };
+    }
 
     // 4. Generate SHA-256 tamper checksum
     const tamperChecksum = generateEventChecksum({
@@ -52,7 +94,7 @@ export async function createPracticeEventAction(data: {
     // 5. Create PracticeEvent record
     const event = await db.practiceEvent.create({
       data: {
-        allocationId: data.allocationId,
+        allocationId: allocation.id,
         eventDate: new Date(data.eventDate),
         startTime: data.startTime,
         endTime: data.endTime,
@@ -64,25 +106,12 @@ export async function createPracticeEventAction(data: {
         criticalReflection: data.criticalReflection,
         competenciesTagged: data.competenciesTagged,
         scopeLevel: data.scopeLevel,
-        evidenceUrl: data.evidenceUrl || null,
+        evidenceUrl: evidencePath || null,
         evidenceSanitized: true,
         verificationStatus: VerificationStatus.PENDING,
         tamperChecksum,
       },
     });
-
-    // 6. If ScopeGuard flagged a breach, create an Early Warning Alert for faculty liaison
-    if (!scopeCheck.allowed) {
-      await db.earlyWarningAlert.create({
-        data: {
-          allocationId: data.allocationId,
-          alertType: AlertType.SCOPE_GUARD_FLAG,
-          severity: scopeCheck.violationSeverity === "HIGH" ? AlertSeverity.HIGH : AlertSeverity.MEDIUM,
-          title: `ScopeGuard Policy Flag: ${data.activityTitle}`,
-          description: `Trainee logged an activity requiring ${scopeCheck.rule?.allowedScope} as ${data.scopeLevel}. Rationale: ${scopeCheck.rule?.rationale}`,
-        },
-      });
-    }
 
     revalidatePath(`/${data.tenantSlug}/student/logbook`);
     revalidatePath(`/${data.tenantSlug}/student`);
@@ -92,10 +121,13 @@ export async function createPracticeEventAction(data: {
     return {
       success: true,
       event,
-      scopeWarning: !scopeCheck.allowed ? scopeCheck.rule?.rationale : null,
+      scopeWarning: null,
       message: `Practice Event logged (${(totalMinutes / 60).toFixed(1)} hrs). Submitted for Field Supervisor verification.`,
     };
   } catch (error: any) {
+    if (error instanceof AuthenticationError || error instanceof AuthorizationError) {
+      return { success: false, error: error.message };
+    }
     console.error("Failed to create practice event:", error);
     return { success: false, error: error.message };
   }
@@ -108,12 +140,49 @@ export async function verifyPracticeEventAction(data: {
   supervisorNotes?: string;
 }) {
   try {
+    if (!Object.values(VerificationStatus).includes(data.status)) {
+      return { success: false, error: "Invalid verification status." };
+    }
+    const existingEvent = await db.practiceEvent.findFirst({
+      where: { id: data.eventId, allocation: { cycle: { tenant: { slug: data.tenantSlug } } } },
+      select: {
+        id: true,
+        verificationStatus: true,
+        supervisorNotes: true,
+        allocation: { select: { fieldSupervisorId: true, cycle: { select: { tenantId: true } } } },
+      },
+    });
+    if (!existingEvent) {
+      return { success: false, error: "Practice event not found for this institution." };
+    }
+    if (existingEvent.verificationStatus !== VerificationStatus.PENDING) {
+      return { success: false, error: "Only pending practice events can be verified or queried." };
+    }
+    let actorPersonId = existingEvent.allocation.fieldSupervisorId;
+    if (!isDemoMode()) {
+      const actor = await requireAuthenticatedActor();
+      if (actor.id !== existingEvent.allocation.fieldSupervisorId) {
+        throw new AuthorizationError("Only the assigned field supervisor may verify this event.");
+      }
+      actorPersonId = actor.id;
+    }
     const event = await db.practiceEvent.update({
-      where: { id: data.eventId },
+      where: { id: existingEvent.id },
       data: {
         verificationStatus: data.status,
         supervisorNotes: data.supervisorNotes || null,
-        verifiedAt: new Date(),
+        verifiedAt: data.status === VerificationStatus.VERIFIED ? new Date() : null,
+      },
+    });
+    await db.auditLog.create({
+      data: {
+        tenantId: existingEvent.allocation.cycle.tenantId,
+        actorPersonId,
+        actionType: `PRACTICE_EVENT_${data.status}`,
+        resourceType: "PracticeEvent",
+        resourceId: event.id,
+        beforeState: { status: existingEvent.verificationStatus, supervisorNotes: existingEvent.supervisorNotes },
+        afterState: { status: data.status, supervisorNotes: data.supervisorNotes || null },
       },
     });
 
@@ -124,6 +193,9 @@ export async function verifyPracticeEventAction(data: {
 
     return { success: true, event };
   } catch (error: any) {
+    if (error instanceof AuthenticationError || error instanceof AuthorizationError) {
+      return { success: false, error: error.message };
+    }
     console.error("Failed to verify practice event:", error);
     return { success: false, error: error.message };
   }

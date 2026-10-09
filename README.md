@@ -1,13 +1,16 @@
 # PracticumOS: The Operating System for Practice, Care & Social Welfare
 
-[![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)](https://github.com/parakletusguy/practicum-os)
-[![Lifecycle Verification](https://img.shields.io/badge/Lifecycle%20Verification-30%2F30%20Steps%20Passed-blue)](file:///c:/Users/PARAKLETUS%20HUB/.gemini/PracticumOS/scripts/verify_30_step_lifecycle.mjs)
+[![Status](https://img.shields.io/badge/Status-Preview%20environment-amber)](https://github.com/parakletusguy/practicum-os)
+[![Lifecycle Fixture](https://img.shields.io/badge/Lifecycle%20Fixture-30%20workflow%20steps-blue)](file:///c:/Users/PARAKLETUS%20HUB/.gemini/PracticumOS/scripts/verify_30_step_lifecycle.mjs)
 [![Next.js](https://img.shields.io/badge/Next.js-14.2%20App%20Router-black)](https://nextjs.org)
 [![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2017%20on%20Supabase-3178C6)](https://supabase.com)
 [![Prisma ORM](https://img.shields.io/badge/ORM-Prisma%205.20-2D3748)](https://prisma.io)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript%205.6-3178C6)](https://typescriptlang.org)
 
 ---
+
+> **Current status:** PracticumOS is a preview environment. The workflow screens and fixture script are present, while production authentication, authorization, storage privacy, and independent browser testing are being implemented. The 30-step script exercises database fixtures directly; it is not a production-readiness certification. See [verification guardrails](docs/verification-guardrails.md).
+
 
 ## 📌 Table of Contents
 
@@ -379,8 +382,11 @@ NEXTAUTH_SECRET="your-development-secret-key"
 PracticumOS includes an automated 30-step end-to-end verification suite validating all business processes against live PostgreSQL:
 
 ```bash
-npm run test:e2e
+# Use a disposable test database, never the development or production database.
+PRACTICUM_E2E_DATABASE_URL="postgresql://...test-database..." npm run test:e2e
 ```
+
+The command intentionally refuses to run without `PRACTICUM_E2E_DATABASE_URL`, because it creates and then removes lifecycle fixtures.
 
 **Expected Result:**
 ```text

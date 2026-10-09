@@ -6,12 +6,14 @@ import { NotificationCenter } from "@/components/layout/NotificationCenter";
 import { useSidebar } from "@/components/layout/SidebarContext";
 
 interface FieldHeaderProps {
+  tenantSlug: string;
   supervisorName: string;
   agencyName: string;
   pendingCount?: number;
 }
 
 export function FieldHeader({
+  tenantSlug,
   supervisorName,
   agencyName,
   pendingCount = 0,
@@ -44,7 +46,7 @@ export function FieldHeader({
         <div className="hidden sm:block">
           <NetworkStatusBadge />
         </div>
-        <NotificationCenter />
+        <NotificationCenter tenantSlug={tenantSlug} />
 
         {pendingCount > 0 && (
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px] sm:text-xs font-semibold">
