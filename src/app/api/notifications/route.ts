@@ -3,6 +3,9 @@ import { prisma } from "@/lib/db";
 import { AuthenticationError, AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
 import { isDemoMode } from "@/lib/runtime-mode";
 
+// Notification visibility depends on the request URL and authenticated actor.
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   try {
     const tenantSlug = request.nextUrl.searchParams.get("tenant");
