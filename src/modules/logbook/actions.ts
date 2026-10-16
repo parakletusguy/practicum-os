@@ -7,6 +7,7 @@ import { evaluateScopeGuard } from "@/modules/scope-guard/policy";
 import { generateEventChecksum, validateClientDeidentification } from "@/modules/evidence-vault/sanitizer";
 import { AuthenticationError, AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
 import { isDemoMode } from "@/lib/runtime-mode";
+import { queueInitialAlertNotification } from "@/modules/notifications/email-delivery";
 
 export async function createPracticeEventAction(data: {
   tenantSlug: string;
@@ -63,7 +64,7 @@ export async function createPracticeEventAction(data: {
     const scopeCheck = evaluateScopeGuard(data.activityTitle, data.category, data.scopeLevel);
 
     if (!scopeCheck.allowed) {
-      await db.earlyWarningAlert.create({
+      const alert = await db.earlyWarningAlert.create({
         data: {
           allocationId: allocation.id,
           alertType: AlertType.SCOPE_GUARD_FLAG,
@@ -72,6 +73,7 @@ export async function createPracticeEventAction(data: {
           description: `A trainee attempted an activity requiring ${scopeCheck.rule?.allowedScope} as ${data.scopeLevel}. ${scopeCheck.rule?.rationale}`,
         },
       });
+      if (!isDemoMode()) await queueInitialAlertNotification(alert.id);
 
       return {
         success: false,

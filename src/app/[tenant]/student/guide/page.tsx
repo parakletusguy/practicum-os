@@ -13,14 +13,15 @@ import {
 } from "lucide-react";
 
 interface GuidePageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function GuidePage({ params }: GuidePageProps) {
+export default async function GuidePage(props: GuidePageProps) {
+  const params = await props.params;
   const tenantSlug = params.tenant;
 
   const tenant = await db.organisation.findUnique({

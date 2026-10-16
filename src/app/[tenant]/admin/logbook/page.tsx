@@ -3,11 +3,12 @@ import { prisma } from "@/lib/db";
 import { VerificationTableClient } from "@/app/[tenant]/field/verifications/verification-table-client";
 import { BookOpenCheck, ShieldCheck } from "lucide-react";
 
-export default async function AdminLogbookPage({
-  params,
-}: {
-  params: { tenant: string };
-}) {
+export default async function AdminLogbookPage(
+  props: {
+    params: Promise<{ tenant: string }>;
+  }
+) {
+  const params = await props.params;
   const tenant = await prisma.organisation.findUnique({
     where: { slug: params.tenant },
   });

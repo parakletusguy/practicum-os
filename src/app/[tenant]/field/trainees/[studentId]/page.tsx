@@ -15,11 +15,12 @@ import {
   FileCheck,
 } from "lucide-react";
 
-export default async function FieldTraineeDetailPage({
-  params,
-}: {
-  params: { tenant: string; studentId: string };
-}) {
+export default async function FieldTraineeDetailPage(
+  props: {
+    params: Promise<{ tenant: string; studentId: string }>;
+  }
+) {
+  const params = await props.params;
   const tenant = await prisma.organisation.findUnique({
     where: { slug: params.tenant },
   });

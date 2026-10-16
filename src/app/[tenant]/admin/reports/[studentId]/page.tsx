@@ -12,11 +12,12 @@ import {
   Award,
 } from "lucide-react";
 
-export default async function StudentOfficialTranscriptPage({
-  params,
-}: {
-  params: { tenant: string; studentId: string };
-}) {
+export default async function StudentOfficialTranscriptPage(
+  props: {
+    params: Promise<{ tenant: string; studentId: string }>;
+  }
+) {
+  const params = await props.params;
   const tenant = await prisma.organisation.findUnique({
     where: { slug: params.tenant },
   });

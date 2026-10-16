@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET() {
   const start = Date.now();
@@ -18,34 +19,38 @@ export async function GET() {
     dbError = error.message;
   }
 
-  const memory = process.memoryUsage();
-  const uptimeSeconds = Math.floor(process.uptime());
-
   const isHealthy = dbStatus === "healthy";
+  const production = process.env.NODE_ENV === "production";
+  const response = {
+    status: isHealthy ? "healthy" : "degraded",
+    service: "PracticumOS Core Platform",
+    timestamp: new Date().toISOString(),
+    responseTimeMs: Date.now() - start,
+    database: production
+      ? { status: dbStatus, latencyMs: dbLatencyMs }
+      : {
+          provider: "PostgreSQL 17 (Supabase)",
+          status: dbStatus,
+          latencyMs: dbLatencyMs,
+          error: dbError,
+        },
+    ...(!production
+      ? {
+          system: {
+            uptimeSeconds: Math.floor(process.uptime()),
+            nodeVersion: process.version,
+            memoryUsageMB: {
+              rss: Math.round(process.memoryUsage().rss / (1024 * 1024)),
+              heapTotal: Math.round(process.memoryUsage().heapTotal / (1024 * 1024)),
+              heapUsed: Math.round(process.memoryUsage().heapUsed / (1024 * 1024)),
+            },
+          },
+        }
+      : {}),
+  };
 
   return NextResponse.json(
-    {
-      status: isHealthy ? "healthy" : "degraded",
-      service: "PracticumOS Core Platform",
-      environment: process.env.NODE_ENV || "production",
-      timestamp: new Date().toISOString(),
-      responseTimeMs: Date.now() - start,
-      database: {
-        provider: "PostgreSQL 17 (Supabase)",
-        status: dbStatus,
-        latencyMs: dbLatencyMs,
-        error: dbError,
-      },
-      system: {
-        uptimeSeconds,
-        nodeVersion: process.version,
-        memoryUsageMB: {
-          rss: Math.round(memory.rss / (1024 * 1024)),
-          heapTotal: Math.round(memory.heapTotal / (1024 * 1024)),
-          heapUsed: Math.round(memory.heapUsed / (1024 * 1024)),
-        },
-      },
-    },
+    response,
     {
       status: isHealthy ? 200 : 503,
       headers: {

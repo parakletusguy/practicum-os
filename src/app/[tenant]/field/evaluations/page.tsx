@@ -3,11 +3,12 @@ import { prisma } from "@/lib/db";
 import { RubricFormClient } from "./rubric-form-client";
 import { Award, ShieldCheck } from "lucide-react";
 
-export default async function FieldEvaluationsPage({
-  params,
-}: {
-  params: { tenant: string };
-}) {
+export default async function FieldEvaluationsPage(
+  props: {
+    params: Promise<{ tenant: string }>;
+  }
+) {
+  const params = await props.params;
   const tenant = await prisma.organisation.findUnique({
     where: { slug: params.tenant },
   });

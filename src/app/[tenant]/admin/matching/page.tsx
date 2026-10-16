@@ -15,17 +15,19 @@ import Link from "next/link";
 import { MatchingWorkspaceClient } from "./matching-workspace-client";
 
 interface MatchingPageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
-  searchParams?: {
+  }>;
+  searchParams?: Promise<{
     cycleId?: string;
-  };
+  }>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function MatchingPage({ params, searchParams }: MatchingPageProps) {
+export default async function MatchingPage(props: MatchingPageProps) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const tenantSlug = params.tenant;
 
   const tenant = await db.organisation.findUnique({

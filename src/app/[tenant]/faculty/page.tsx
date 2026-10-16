@@ -14,11 +14,12 @@ import {
   CheckCircle2,
 } from "lucide-react";
 
-export default async function FacultyDashboardPage({
-  params,
-}: {
-  params: { tenant: string };
-}) {
+export default async function FacultyDashboardPage(
+  props: {
+    params: Promise<{ tenant: string }>;
+  }
+) {
+  const params = await props.params;
   const tenant = await prisma.organisation.findUnique({
     where: { slug: params.tenant },
   });

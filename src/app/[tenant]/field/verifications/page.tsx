@@ -3,11 +3,12 @@ import { prisma } from "@/lib/db";
 import { VerificationTableClient } from "./verification-table-client";
 import { CheckCircle2, ShieldCheck } from "lucide-react";
 
-export default async function FieldVerificationsPage({
-  params,
-}: {
-  params: { tenant: string };
-}) {
+export default async function FieldVerificationsPage(
+  props: {
+    params: Promise<{ tenant: string }>;
+  }
+) {
+  const params = await props.params;
   const tenant = await prisma.organisation.findUnique({
     where: { slug: params.tenant },
   });

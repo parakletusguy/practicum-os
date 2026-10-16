@@ -12,17 +12,19 @@ import {
 import { CohortImportClient } from "./cohort-import-client";
 
 interface CohortPageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
-  searchParams?: {
+  }>;
+  searchParams?: Promise<{
     cycleId?: string;
-  };
+  }>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function CohortPage({ params, searchParams }: CohortPageProps) {
+export default async function CohortPage(props: CohortPageProps) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const tenantSlug = params.tenant;
 
   const tenant = await db.organisation.findUnique({

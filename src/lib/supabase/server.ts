@@ -4,14 +4,14 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getSupabasePublicConfig } from "@/lib/runtime-mode";
 
-export function createServerSupabaseClient() {
+export async function createServerSupabaseClient() {
   const config = getSupabasePublicConfig();
 
   if (!config) {
     throw new Error("Supabase authentication has not been configured for this environment.");
   }
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
 
   return createServerClient(config.url, config.key, {
     cookies: {

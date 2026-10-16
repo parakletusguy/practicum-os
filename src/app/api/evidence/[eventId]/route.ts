@@ -4,10 +4,8 @@ import { db } from "@/lib/db";
 import { AuthenticationError, AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
 import { getSupabasePublicConfig, isDemoMode } from "@/lib/runtime-mode";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { eventId: string } }
-) {
+export async function GET(request: NextRequest, props: { params: Promise<{ eventId: string }> }) {
+  const params = await props.params;
   try {
     const event = await db.practiceEvent.findUnique({
       where: { id: params.eventId },
@@ -58,13 +56,15 @@ export async function GET(
     });
     const { data, error } = await supabase.storage
       .from("evidence-vault")
-      .createSignedUrl(event.evidenceUrl, 60);
+      .createSignedUrl(event.evidenceUrl, 60, { download: true });
     if (error || !data?.signedUrl) {
       console.error("Evidence signed URL error:", error);
       return NextResponse.json({ error: "Evidence is temporarily unavailable." }, { status: 503 });
     }
 
-    return NextResponse.redirect(data.signedUrl);
+    const response = NextResponse.redirect(data.signedUrl);
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
   } catch (error) {
     if (error instanceof AuthenticationError) {
       return NextResponse.json({ error: error.message }, { status: 401 });

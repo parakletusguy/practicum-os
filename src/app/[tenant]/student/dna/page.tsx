@@ -13,14 +13,15 @@ import {
 } from "lucide-react";
 
 interface StudentDnaPageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function StudentDnaPage({ params }: StudentDnaPageProps) {
+export default async function StudentDnaPage(props: StudentDnaPageProps) {
+  const params = await props.params;
   const tenantSlug = params.tenant;
 
   const student = await db.person.findFirst({

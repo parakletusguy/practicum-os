@@ -16,14 +16,15 @@ import {
 import { LearningContractClient } from "./learning-contract-client";
 
 interface StudentPlacementPageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function StudentPlacementPage({ params }: StudentPlacementPageProps) {
+export default async function StudentPlacementPage(props: StudentPlacementPageProps) {
+  const params = await props.params;
   const tenantSlug = params.tenant;
 
   const student = await db.person.findFirst({

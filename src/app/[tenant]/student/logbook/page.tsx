@@ -16,14 +16,15 @@ import {
 import { LogbookModalClient } from "./logbook-modal-client";
 
 interface StudentLogbookPageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function StudentLogbookPage({ params }: StudentLogbookPageProps) {
+export default async function StudentLogbookPage(props: StudentLogbookPageProps) {
+  const params = await props.params;
   const tenantSlug = params.tenant;
 
   const student = await db.person.findFirst({

@@ -2,11 +2,12 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { ShieldAlert, ShieldCheck, AlertTriangle, Lock } from "lucide-react";
 
-export default async function AdminScopeGuardPage({
-  params,
-}: {
-  params: { tenant: string };
-}) {
+export default async function AdminScopeGuardPage(
+  props: {
+    params: Promise<{ tenant: string }>;
+  }
+) {
+  const params = await props.params;
   const tenant = await prisma.organisation.findUnique({
     where: { slug: params.tenant },
   });

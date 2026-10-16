@@ -13,14 +13,15 @@ import {
 import { AgencyModalClient } from "./agency-modal-client";
 
 interface AgenciesPageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function AgenciesPage({ params }: AgenciesPageProps) {
+export default async function AgenciesPage(props: AgenciesPageProps) {
+  const params = await props.params;
   const tenantSlug = params.tenant;
 
   const tenant = await db.organisation.findUnique({

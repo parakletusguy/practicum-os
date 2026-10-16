@@ -3,11 +3,12 @@ import { prisma } from "@/lib/db";
 import { ScorebookClient } from "./scorebook-client";
 import { Award, ShieldCheck } from "lucide-react";
 
-export default async function CohortGradingPage({
-  params,
-}: {
-  params: { tenant: string };
-}) {
+export default async function CohortGradingPage(
+  props: {
+    params: Promise<{ tenant: string }>;
+  }
+) {
+  const params = await props.params;
   const tenant = await prisma.organisation.findUnique({
     where: { slug: params.tenant },
   });

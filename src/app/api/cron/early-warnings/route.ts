@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
+import { processPendingEmailDeliveries, queueCriticalAlertEscalations } from "@/modules/notifications/email-delivery";
 import { scanEarlyWarningsForCycle } from "@/modules/supervision/early-warning";
 
 export const dynamic = "force-dynamic";
@@ -63,13 +64,31 @@ export async function GET(request: NextRequest) {
     0,
   );
 
+  let escalationsQueued = 0;
+  let emailDelivery;
+  try {
+    escalationsQueued = await queueCriticalAlertEscalations();
+    emailDelivery = await processPendingEmailDeliveries();
+  } catch (error) {
+    console.error("Outbound notification scheduler failed", { error });
+    return NextResponse.json(
+      { error: "Outbound notification scheduler failed." },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   return NextResponse.json(
     {
       scannedCycles: cycles.length,
       alertsGenerated,
       failedCycles: failures.length,
+      escalationsQueued,
+      emailDelivery,
       results,
     },
-    { status: failures.length > 0 ? 207 : 200 },
+    {
+      status: emailDelivery.configurationError ? 503 : failures.length > 0 ? 207 : 200,
+      headers: { "Cache-Control": "no-store" },
+    },
   );
 }

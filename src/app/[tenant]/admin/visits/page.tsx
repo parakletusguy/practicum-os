@@ -3,11 +3,12 @@ import { prisma } from "@/lib/db";
 import { SupervisionVisitModalClient } from "@/app/[tenant]/faculty/visits/supervision-visit-modal-client";
 import { CalendarCheck, ShieldCheck } from "lucide-react";
 
-export default async function AdminVisitsPage({
-  params,
-}: {
-  params: { tenant: string };
-}) {
+export default async function AdminVisitsPage(
+  props: {
+    params: Promise<{ tenant: string }>;
+  }
+) {
+  const params = await props.params;
   const tenant = await prisma.organisation.findUnique({
     where: { slug: params.tenant },
   });

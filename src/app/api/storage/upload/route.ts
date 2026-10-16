@@ -3,7 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { AuthenticationError, AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
+import { hasTrustedBrowserOrigin } from "@/lib/request-security";
 import { getSupabasePublicConfig, isDemoMode } from "@/lib/runtime-mode";
+import { screenEvidenceFile } from "@/modules/evidence-vault/file-screening";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set([
@@ -12,12 +14,23 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
   "text/plain",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
+const EXTENSION_BY_MIME: Record<string, string> = {
+  "application/pdf": "pdf",
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "text/plain": "txt",
+};
+
+export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   try {
+    if (!isDemoMode() && !hasTrustedBrowserOrigin(request)) {
+      return NextResponse.json({ error: "Untrusted request origin." }, { status: 403 });
+    }
+
     const formData = await request.formData();
     const file = formData.get("file");
     const allocationId = formData.get("allocationId");
@@ -34,6 +47,12 @@ export async function POST(request: NextRequest) {
     }
     if (!ALLOWED_MIME_TYPES.has(file.type)) {
       return NextResponse.json({ error: "This file type is not supported." }, { status: 400 });
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const screeningError = screenEvidenceFile(buffer, file.type);
+    if (screeningError) {
+      return NextResponse.json({ error: screeningError }, { status: 400 });
     }
 
     const allocation = await db.placementAllocation.findUnique({
@@ -57,9 +76,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Evidence storage is not configured." }, { status: 503 });
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
     const checksum = crypto.createHash("sha256").update(buffer).digest("hex");
-    const extension = file.name.split(".").pop()?.toLowerCase() || "bin";
+    const extension = EXTENSION_BY_MIME[file.type];
     const storagePath = `${allocation.id}/${crypto.randomUUID()}.${extension}`;
     const supabase = createClient(config.url, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },

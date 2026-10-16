@@ -85,6 +85,7 @@ model Organisation {
   placementOffers    PlacementOffer[]
   hostedAllocations  PlacementAllocation[] @relation("HostOrgAllocations")
   auditLogs          AuditLog[]
+  emailDeliveries    EmailDelivery[]
 
   @@map("organisations")
 }
@@ -276,6 +277,7 @@ model PlacementAllocation {
   supervisionVisits      SupervisionVisit[]
   earlyWarningAlerts     EarlyWarningAlert[]
   assessments            AssessmentSubmission[]
+  emailDeliveries        EmailDelivery[]
 
   @@map("placement_allocations")
 }
@@ -383,12 +385,61 @@ model EarlyWarningAlert {
   createdAt      DateTime            @default(now()) @map("created_at")
 
   allocation     PlacementAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  emailDeliveries EmailDelivery[]
 
   @@map("early_warning_alerts")
 }
 
 // ==========================================
-// 7. ASSESSMENTS, GRADES & RUBRICS
+// 7. OUTBOUND DELIVERY QUEUE
+// ==========================================
+
+enum EmailDeliveryKind {
+  POSTING_LETTER
+  EARLY_WARNING
+  EARLY_WARNING_ESCALATION
+}
+
+enum EmailDeliveryStatus {
+  PENDING
+  SENDING
+  RETRY_SCHEDULED
+  SENT
+  FAILED
+}
+
+model EmailDelivery {
+  id                String              @id @default(uuid())
+  tenantId          String              @map("tenant_id")
+  allocationId      String?             @map("allocation_id")
+  alertId           String?             @map("alert_id")
+  kind              EmailDeliveryKind
+  recipient         String
+  subject           String
+  status            EmailDeliveryStatus @default(PENDING)
+  attemptCount      Int                 @default(0) @map("attempt_count")
+  nextAttemptAt     DateTime            @default(now()) @map("next_attempt_at")
+  lastAttemptAt     DateTime?           @map("last_attempt_at")
+  sentAt            DateTime?           @map("sent_at")
+  providerMessageId String?             @unique @map("provider_message_id")
+  idempotencyKey    String              @unique @map("idempotency_key")
+  lastError         String?             @map("last_error")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  tenant            Organisation        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  allocation        PlacementAllocation? @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  alert             EarlyWarningAlert?  @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@unique([kind, allocationId, recipient])
+  @@unique([kind, alertId, recipient])
+  @@index([status, nextAttemptAt])
+  @@index([tenantId, createdAt])
+  @@map("email_deliveries")
+}
+
+// ==========================================
+// 8. ASSESSMENTS, GRADES & RUBRICS
 // ==========================================
 
 enum EvaluatorType {
@@ -449,7 +500,7 @@ model CohortGrade {
 }
 
 // ==========================================
-// 8. AUDIT LEDGER (IMMUTABLE)
+// 9. AUDIT LEDGER (IMMUTABLE)
 // ==========================================
 
 model AuditLog {
@@ -472,7 +523,7 @@ model AuditLog {
 }
 
 // ==========================================
-// 9. SYSTEM B: HUMAN NEEDS & SERVICES
+// 10. SYSTEM B: HUMAN NEEDS & SERVICES
 // ==========================================
 
 enum NeedCategory {

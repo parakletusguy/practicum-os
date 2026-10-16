@@ -73,23 +73,26 @@ export async function GET(request: NextRequest) {
       prisma.earlyWarningAlert.count({ where: { ...where, isResolved: false } }),
     ]);
 
-    return NextResponse.json({
-      success: true,
-      activeCount,
-      alerts: alerts.map((alert) => ({
-        id: alert.id,
-        title: alert.title,
-        description: alert.description,
-        severity: alert.severity,
-        alertType: alert.alertType,
-        isResolved: alert.isResolved,
-        createdAt: alert.createdAt,
-        studentName: alert.allocation?.cohortStudent?.person
-          ? `${alert.allocation.cohortStudent.person.firstName} ${alert.allocation.cohortStudent.person.lastName}`
-          : "Trainee",
-        agencyName: alert.allocation?.hostOrg?.name || "Placement agency",
-      })),
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        activeCount,
+        alerts: alerts.map((alert) => ({
+          id: alert.id,
+          title: alert.title,
+          description: alert.description,
+          severity: alert.severity,
+          alertType: alert.alertType,
+          isResolved: alert.isResolved,
+          createdAt: alert.createdAt,
+          studentName: alert.allocation?.cohortStudent?.person
+            ? `${alert.allocation.cohortStudent.person.firstName} ${alert.allocation.cohortStudent.person.lastName}`
+            : "Trainee",
+          agencyName: alert.allocation?.hostOrg?.name || "Placement agency",
+        })),
+      },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
   } catch (error) {
     if (error instanceof AuthenticationError) {
       return NextResponse.json({ error: error.message }, { status: 401 });

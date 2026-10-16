@@ -15,14 +15,15 @@ import {
 } from "lucide-react";
 
 interface StudentDashboardProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function StudentDashboard({ params }: StudentDashboardProps) {
+export default async function StudentDashboard(props: StudentDashboardProps) {
+  const params = await props.params;
   const tenantSlug = params.tenant;
 
   // Fetch student Eze (sample student)

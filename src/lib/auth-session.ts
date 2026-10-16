@@ -11,7 +11,7 @@ const PERSONA_COOKIE_NAME = "practicum_active_persona";
  * Read the current active persona from cookies (Server Component / Action safe)
  */
 export async function getActivePersona(): Promise<DemoPersona> {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const rawKey = cookieStore.get(PERSONA_COOKIE_NAME)?.value as DemoPersonaKey | undefined;
   
   if (rawKey && DEMO_PERSONAS[rawKey]) {
@@ -29,7 +29,7 @@ export async function setActivePersonaAction(personaKey: DemoPersonaKey) {
     return { success: false, error: "Demo personas are disabled in this environment." };
   }
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   if (DEMO_PERSONAS[personaKey]) {
     cookieStore.set(PERSONA_COOKIE_NAME, personaKey, {
       path: "/",

@@ -6,14 +6,34 @@ import { db } from "@/lib/db";
 import { AllocationStatus, SystemRole } from "@prisma/client";
 import { AuthorizationError, requireAuthenticatedActor, requireTenantRole } from "@/lib/authz";
 import { isDemoMode } from "@/lib/runtime-mode";
+import { assertEmailDeliveryConfigured } from "@/lib/email/resend";
+import {
+  createPostingEmailDeliveries,
+  processPendingEmailDeliveries,
+} from "@/modules/notifications/email-delivery";
 
 export async function dispatchPostingLettersAction(
   tenantSlug: string,
   cycleId: string
 ) {
   try {
+    const demoMode = isDemoMode();
     if (!isDemoMode()) {
       await requireTenantRole(tenantSlug, [SystemRole.COORDINATOR, SystemRole.INSTITUTION_ADMIN]);
+      try {
+        assertEmailDeliveryConfigured();
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error
+            ? `Posting delivery is not configured: ${error.message}`
+            : "Posting delivery is not configured.",
+        };
+      }
+    }
+    const tenant = await db.organisation.findUnique({ where: { slug: tenantSlug }, select: { id: true } });
+    if (!tenant) {
+      return { success: false, error: "Institution not found." };
     }
     const cycle = await db.practicumCycle.findFirst({
       where: { id: cycleId, tenant: { slug: tenantSlug } },
@@ -29,7 +49,8 @@ export async function dispatchPostingLettersAction(
         status: AllocationStatus.APPROVED,
       },
       include: {
-        cycle: true,
+        studentPerson: { select: { firstName: true, lastName: true, email: true } },
+        hostOrg: { select: { name: true, email: true } },
       },
     });
 
@@ -37,7 +58,9 @@ export async function dispatchPostingLettersAction(
       return { success: true, count: 0, message: "No approved allocations waiting for posting." };
     }
 
-    let dispatched = 0;
+    let issued = 0;
+    let queuedRecipients = 0;
+    const blocked: string[] = [];
     const now = new Date();
 
     for (let i = 0; i < allocationsToPost.length; i++) {
@@ -46,40 +69,67 @@ export async function dispatchPostingLettersAction(
         alloc.postingLetterRef ||
         `UNILAG/SWK/2026/PL-${String(i + 101).padStart(3, "0")}`;
 
-      await db.placementAllocation.update({
-        where: { id: alloc.id },
-        data: {
-          // Generating a posting reference is not evidence of delivery or of
-          // the student beginning placement. Those states remain separate.
-          status: AllocationStatus.POSTED,
-          postingLetterRef: letterRef,
-          postedAt: alloc.postedAt || now,
-        },
+      const queue = createPostingEmailDeliveries({
+        tenantId: tenant.id,
+        allocationId: alloc.id,
+        studentEmail: alloc.studentPerson.email,
+        hostEmail: alloc.hostOrg.email,
+        studentName: `${alloc.studentPerson.firstName} ${alloc.studentPerson.lastName}`,
+        hostName: alloc.hostOrg.name,
+        reference: letterRef,
+      });
+      if (!demoMode && queue.missing.length) {
+        blocked.push(...queue.missing);
+        continue;
+      }
+
+      await db.$transaction(async (tx) => {
+        await tx.placementAllocation.update({
+          where: { id: alloc.id },
+          data: {
+            // Issuing a letter is distinct from the student beginning placement.
+            status: AllocationStatus.POSTED,
+            postingLetterRef: letterRef,
+            postedAt: alloc.postedAt || now,
+          },
+        });
+        await tx.cohortStudent.update({
+          where: { id: alloc.cohortStudentId },
+          data: { status: "PLACED" },
+        });
+        if (!demoMode) {
+          await tx.emailDelivery.createMany({ data: queue.queued, skipDuplicates: true });
+        }
       });
 
-      // Update student status to PLACED
-      await db.cohortStudent.update({
-        where: { id: alloc.cohortStudentId },
-        data: { status: "PLACED" },
-      });
-
-      dispatched++;
+      issued++;
+      queuedRecipients += queue.queued.length;
     }
 
     const actor = !isDemoMode() ? await requireAuthenticatedActor() : null;
-    const tenant = await db.organisation.findUnique({ where: { slug: tenantSlug }, select: { id: true } });
-    if (tenant) {
-      await db.auditLog.create({
-        data: {
-          tenantId: tenant.id,
-          actorPersonId: actor?.id,
-          actionType: "POSTING_REFERENCES_GENERATED",
-          resourceType: "PracticumCycle",
-          resourceId: cycle.id,
-          afterState: { count: dispatched },
+    const deliveryRun = !demoMode && queuedRecipients > 0
+      ? await processPendingEmailDeliveries(Math.min(queuedRecipients, 25))
+      : null;
+    await db.auditLog.create({
+      data: {
+        tenantId: tenant.id,
+        actorPersonId: actor?.id,
+        actionType: demoMode ? "POSTING_REFERENCES_GENERATED_DEMO" : "POSTING_LETTERS_QUEUED",
+        resourceType: "PracticumCycle",
+        resourceId: cycle.id,
+        afterState: {
+          issued,
+          queuedRecipients,
+          blockedAllocations: blocked.length,
+          delivery: deliveryRun && {
+            attempted: deliveryRun.attempted,
+            sent: deliveryRun.sent,
+            retried: deliveryRun.retried,
+            failed: deliveryRun.failed,
+          },
         },
-      });
-    }
+      },
+    });
 
     revalidatePath(`/${tenantSlug}/admin/postings`);
     revalidatePath(`/${tenantSlug}/admin/matching`);
@@ -88,8 +138,14 @@ export async function dispatchPostingLettersAction(
 
     return {
       success: true,
-      count: dispatched,
-      message: `Generated ${dispatched} posting reference(s). Delivery is not recorded by this preview workflow.`,
+      count: issued,
+      message: demoMode
+        ? `Generated ${issued} preview posting reference(s). Demo mode never sends email.`
+        : [
+            `Issued ${issued} posting letter(s); ${queuedRecipients} delivery recipient(s) queued.`,
+            deliveryRun ? `${deliveryRun.sent} accepted by the email provider${deliveryRun.retried ? `; ${deliveryRun.retried} scheduled for retry` : ""}.` : "",
+            blocked.length ? `${blocked.length} recipient requirement(s) blocked issuance: ${blocked.join("; ")}.` : "",
+          ].filter(Boolean).join(" "),
     };
   } catch (error: any) {
     console.error("Failed to dispatch posting letters:", error);

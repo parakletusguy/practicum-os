@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/db";
+import { isDemoMode } from "@/lib/runtime-mode";
+import { queueInitialAlertNotification } from "@/modules/notifications/email-delivery";
 
 export type EarlyWarningScanResult = {
   success: true;
@@ -42,6 +44,16 @@ export async function scanEarlyWarningsForCycle(
   const elapsedDays = Math.max(0, Math.min(totalCycleDays, (now.getTime() - cycleStart.getTime()) / 86_400_000));
   const expectedHoursProportion = (elapsedDays / totalCycleDays) * cycle.requiredHours;
 
+  const notifyIfCreated = async (count: number, allocationId: string, alertType: "HOURS_BEHIND_SCHEDULE" | "OVERDUE_LOGBOOK_ENTRY" | "MISSED_SUPERVISION_VISIT") => {
+    if (count !== 1 || isDemoMode()) return;
+    const alert = await prisma.earlyWarningAlert.findFirst({
+      where: { allocationId, alertType, isResolved: false },
+      select: { id: true },
+      orderBy: { createdAt: "desc" },
+    });
+    if (alert) await queueInitialAlertNotification(alert.id);
+  };
+
   for (const allocation of cycle.allocations) {
     const studentName = `${allocation.cohortStudent.person.firstName} ${allocation.cohortStudent.person.lastName}`;
     const verifiedHours = allocation.practiceEvents
@@ -65,6 +77,7 @@ export async function scanEarlyWarningsForCycle(
           skipDuplicates: true,
         });
         alertsGenerated += created.count;
+        await notifyIfCreated(created.count, allocation.id, "HOURS_BEHIND_SCHEDULE");
       }
     }
 
@@ -88,6 +101,7 @@ export async function scanEarlyWarningsForCycle(
         skipDuplicates: true,
       });
       alertsGenerated += created.count;
+      await notifyIfCreated(created.count, allocation.id, "OVERDUE_LOGBOOK_ENTRY");
     }
 
     const progressPercent = (elapsedDays / totalCycleDays) * 100;
@@ -103,6 +117,7 @@ export async function scanEarlyWarningsForCycle(
         skipDuplicates: true,
       });
       alertsGenerated += created.count;
+      await notifyIfCreated(created.count, allocation.id, "MISSED_SUPERVISION_VISIT");
     }
   }
 

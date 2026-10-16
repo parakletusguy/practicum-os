@@ -14,11 +14,12 @@ import {
   Sparkles,
 } from "lucide-react";
 
-export default async function FieldSupervisorDashboardPage({
-  params,
-}: {
-  params: { tenant: string };
-}) {
+export default async function FieldSupervisorDashboardPage(
+  props: {
+    params: Promise<{ tenant: string }>;
+  }
+) {
+  const params = await props.params;
   const tenant = await prisma.organisation.findUnique({
     where: { slug: params.tenant },
   });

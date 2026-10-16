@@ -8,12 +8,18 @@ import { isDemoMode } from "@/lib/runtime-mode";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
-export default async function AdminLayout({ children, params }: AdminLayoutProps) {
+export default async function AdminLayout(props: AdminLayoutProps) {
+  const params = await props.params;
+
+  const {
+    children
+  } = props;
+
   const tenantSlug = params.tenant;
   let tenantName = tenantSlug === "unilag" ? "University of Lagos" : "Practicum Institution";
 

@@ -3,11 +3,12 @@ import { prisma } from "@/lib/db";
 import { AlertTriageClient } from "./alert-triage-client";
 import { AlertTriangle, ShieldAlert } from "lucide-react";
 
-export default async function FacultyAlertsPage({
-  params,
-}: {
-  params: { tenant: string };
-}) {
+export default async function FacultyAlertsPage(
+  props: {
+    params: Promise<{ tenant: string }>;
+  }
+) {
+  const params = await props.params;
   const tenant = await prisma.organisation.findUnique({
     where: { slug: params.tenant },
   });

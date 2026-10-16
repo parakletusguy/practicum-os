@@ -8,13 +8,18 @@ import { FieldSidebar } from "@/components/layout/FieldSidebar";
 import { FieldHeader } from "@/components/layout/FieldHeader";
 import { SidebarProvider } from "@/components/layout/SidebarContext";
 
-export default async function FieldSupervisorLayout({
-  children,
-  params,
-}: {
-  children: ReactNode;
-  params: { tenant: string };
-}) {
+export default async function FieldSupervisorLayout(
+  props: {
+    children: ReactNode;
+    params: Promise<{ tenant: string }>;
+  }
+) {
+  const params = await props.params;
+
+  const {
+    children
+  } = props;
+
   const demoMode = isDemoMode();
   let actorId: string | null = null;
   let tenantId: string | null = null;

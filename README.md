@@ -2,7 +2,7 @@
 
 [![Status](https://img.shields.io/badge/Status-Preview%20environment-amber)](https://github.com/parakletusguy/practicum-os)
 [![Lifecycle Fixture](https://img.shields.io/badge/Lifecycle%20Fixture-30%20workflow%20steps-blue)](file:///c:/Users/PARAKLETUS%20HUB/.gemini/PracticumOS/scripts/verify_30_step_lifecycle.mjs)
-[![Next.js](https://img.shields.io/badge/Next.js-14.2%20App%20Router-black)](https://nextjs.org)
+[![Next.js](https://img.shields.io/badge/Next.js-16.4%20App%20Router-black)](https://nextjs.org)
 [![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2017%20on%20Supabase-3178C6)](https://supabase.com)
 [![Prisma ORM](https://img.shields.io/badge/ORM-Prisma%205.20-2D3748)](https://prisma.io)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript%205.6-3178C6)](https://typescriptlang.org)
@@ -354,6 +354,12 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY="[ANON_KEY]"
 # Application URL & Security
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
 NEXTAUTH_SECRET="your-development-secret-key"
+
+# Transactional posting letters and early-warning notifications. The From
+# address must belong to a domain verified in Resend.
+RESEND_API_KEY="re_..."
+RESEND_FROM_EMAIL="PracticumOS <postings@your-verified-domain.example>"
+RESEND_REPLY_TO="field-education@your-verified-domain.example"
 ```
 
 > [!WARNING]
@@ -465,8 +471,10 @@ Open [http://localhost:3000](http://localhost:3000) in your browser:
 ### Vercel Deployment
 PracticumOS is optimized for deployment on Vercel:
 1. Connect repository `parakletusguy/practicum-os` to Vercel.
-2. In the Vercel project settings, configure the environment variables as specified in `.env.production.example`.
-3. Set the build command to `prisma generate && next build`.
+2. Apply the versioned SQL migrations in `supabase/migrations/` before deploying application code that uses them.
+3. In the Vercel project settings, configure the environment variables as specified in `.env.production.example`, including the Resend values and `CRON_SECRET`.
+4. In Resend, verify the sender domain and create a sending-only API key. Posting emails attach a generated PDF; delivery rows retain the provider acceptance ID, retry state, and error state.
+5. Set the build command to `prisma generate && next build`. The linked Hobby plan runs the scheduler daily; upgrade to Vercel Pro before relying on hourly retries or time-sensitive escalations. The application will not retry after Resend's 24-hour idempotency window, to prevent duplicate institutional emails.
 
 ### Docker Deployment
 The project contains an optimized production multi-stage [Dockerfile](file:///c:/Users/PARAKLETUS%20HUB/.gemini/PracticumOS/Dockerfile):

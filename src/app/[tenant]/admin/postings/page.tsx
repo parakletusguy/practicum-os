@@ -16,17 +16,19 @@ import {
 import { PostingDeskClient } from "./posting-desk-client";
 
 interface PostingsPageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
-  searchParams?: {
+  }>;
+  searchParams?: Promise<{
     cycleId?: string;
-  };
+  }>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function PostingsPage({ params, searchParams }: PostingsPageProps) {
+export default async function PostingsPage(props: PostingsPageProps) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const tenantSlug = params.tenant;
 
   const tenant = await db.organisation.findUnique({
@@ -52,6 +54,10 @@ export default async function PostingsPage({ params, searchParams }: PostingsPag
           hostOrg: true,
           fieldSupervisor: true,
           academicSupervisor: true,
+          emailDeliveries: {
+            where: { kind: "POSTING_LETTER" },
+            select: { status: true },
+          },
         },
         orderBy: { createdAt: "desc" },
       })
@@ -59,6 +65,9 @@ export default async function PostingsPage({ params, searchParams }: PostingsPag
 
   const postedCount = allocations.filter((a) => a.postingLetterRef && (a.status === "ACTIVE" || a.status === "POSTED")).length;
   const pendingCount = allocations.length - postedCount;
+  const deliveredCount = allocations.filter((allocation) =>
+    allocation.emailDeliveries.length > 0 && allocation.emailDeliveries.every((delivery) => delivery.status === "SENT"),
+  ).length;
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
@@ -74,7 +83,7 @@ export default async function PostingsPage({ params, searchParams }: PostingsPag
             Electronic Posting Desk
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Generate and dispatch official posting letters with reference numbers and institutional letterhead.
+            Issue official posting letters, attach an archival PDF, and track confirmed email delivery separately.
           </p>
         </div>
 
@@ -103,25 +112,25 @@ export default async function PostingsPage({ params, searchParams }: PostingsPag
 
         <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Dispatched Posting Letters
+            Letters Issued
           </div>
           <div className="text-2xl font-extrabold text-emerald-700 mt-1">
             {postedCount} Active Letters
           </div>
           <div className="text-xs text-emerald-600 font-semibold mt-1">
-            Official letters issued to students & hosts
+            Issued only after student and host recipients are queued
           </div>
         </div>
 
         <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Pending Dispatch
+            Awaiting Issuance
           </div>
           <div className="text-2xl font-extrabold text-amber-600 mt-1">
             {pendingCount} Awaiting
           </div>
           <div className="text-xs text-slate-500 mt-1">
-            Requires batch dispatch action
+            Requires recipient details and batch issue action
           </div>
         </div>
       </div>
@@ -137,7 +146,7 @@ export default async function PostingsPage({ params, searchParams }: PostingsPag
           </div>
 
           <span className="text-xs text-slate-500">
-            Click &quot;View Letter&quot; to print or inspect official dispatch document
+            Email status reflects provider acceptance, not just a generated reference
           </span>
         </div>
 
@@ -187,15 +196,31 @@ export default async function PostingsPage({ params, searchParams }: PostingsPag
                       </div>
                     </td>
                     <td className="py-3.5 px-4">
-                      <span
-                        className={`inline-block font-bold text-[10px] uppercase px-2 py-0.5 rounded-full ${
-                          alloc.status === "ACTIVE" || alloc.status === "POSTED"
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                            : "bg-amber-50 text-amber-700 border border-amber-200"
-                        }`}
-                      >
-                        {alloc.status}
-                      </span>
+                      {(() => {
+                        const deliveries = alloc.emailDeliveries;
+                        const sent = deliveries.length > 0 && deliveries.every((delivery) => delivery.status === "SENT");
+                        const failed = deliveries.some((delivery) => delivery.status === "FAILED");
+                        const queued = deliveries.some((delivery) =>
+                          ["PENDING", "SENDING", "RETRY_SCHEDULED"].includes(delivery.status),
+                        );
+                        const label = sent
+                          ? "Email accepted"
+                          : failed
+                            ? "Email failed"
+                            : queued
+                              ? "Email queued"
+                              : alloc.status === "POSTED" || alloc.status === "ACTIVE"
+                                ? "Issued — no receipt"
+                                : "Awaiting issue";
+                        const tone = sent
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : failed
+                            ? "bg-rose-50 text-rose-700 border-rose-200"
+                            : queued
+                              ? "bg-blue-50 text-blue-700 border-blue-200"
+                              : "bg-amber-50 text-amber-700 border-amber-200";
+                        return <span className={`inline-block font-bold text-[10px] uppercase px-2 py-0.5 rounded-full border ${tone}`}>{label}</span>;
+                      })()}
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       <Link
@@ -213,6 +238,10 @@ export default async function PostingsPage({ params, searchParams }: PostingsPag
           </table>
         </div>
       </div>
+
+      <p className="text-xs text-slate-500 -mt-4">
+        {deliveredCount} of {postedCount} issued letter(s) have confirmed email acceptance. Provider delivery and opening events remain available in the email provider dashboard.
+      </p>
     </div>
   );
 }

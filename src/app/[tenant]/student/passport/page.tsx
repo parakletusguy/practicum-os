@@ -15,14 +15,15 @@ import {
 import { PrintButton } from "@/components/ui/print-button";
 
 interface StudentPassportPageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function StudentPassportPage({ params }: StudentPassportPageProps) {
+export default async function StudentPassportPage(props: StudentPassportPageProps) {
+  const params = await props.params;
   const tenantSlug = params.tenant;
 
   const student = await db.person.findFirst({

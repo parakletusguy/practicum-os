@@ -15,14 +15,15 @@ import {
 import { CycleModalClient } from "./cycle-modal-client";
 
 interface CyclesPageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function CyclesPage({ params }: CyclesPageProps) {
+export default async function CyclesPage(props: CyclesPageProps) {
+  const params = await props.params;
   const tenantSlug = params.tenant;
 
   const tenant = await db.organisation.findUnique({

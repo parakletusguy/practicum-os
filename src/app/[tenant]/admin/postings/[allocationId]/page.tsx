@@ -14,15 +14,16 @@ import {
 import { PrintButton } from "@/components/ui/print-button";
 
 interface PostingLetterPageProps {
-  params: {
+  params: Promise<{
     tenant: string;
     allocationId: string;
-  };
+  }>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function PostingLetterPage({ params }: PostingLetterPageProps) {
+export default async function PostingLetterPage(props: PostingLetterPageProps) {
+  const params = await props.params;
   const { tenant: tenantSlug, allocationId } = params;
 
   const allocation = await db.placementAllocation.findUnique({

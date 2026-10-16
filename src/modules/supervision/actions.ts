@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { VerificationStatus, VisitType, AlertSeverity, AlertType } from "@prisma/client";
 import { AuthorizationError, requireAuthenticatedActor, requireTenantRole } from "@/lib/authz";
 import { isDemoMode } from "@/lib/runtime-mode";
+import { queueInitialAlertNotification } from "@/modules/notifications/email-delivery";
 import { scanEarlyWarningsForCycle } from "./early-warning";
 
 // ==========================================
@@ -149,7 +150,7 @@ export async function createSupervisionVisitAction(formData: FormData) {
 
     // If rated AT_RISK or NEEDS_IMPROVEMENT, automatically generate an Early Warning Alert
     if (studentProgressRating === "AT_RISK" || studentProgressRating === "NEEDS_IMPROVEMENT") {
-      await prisma.earlyWarningAlert.create({
+      const alert = await prisma.earlyWarningAlert.create({
         data: {
           allocationId,
           alertType: "POOR_EVALUATION",
@@ -158,6 +159,7 @@ export async function createSupervisionVisitAction(formData: FormData) {
           description: `Supervisor noted: "${generalObservations.slice(0, 160)}...". Agency feedback: "${agencyFeedback || "None"}". Action items pending: ${actionItems.length}`,
         },
       });
+      if (!isDemoMode()) await queueInitialAlertNotification(alert.id);
     }
 
     // Audit Log

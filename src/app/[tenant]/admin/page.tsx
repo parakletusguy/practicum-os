@@ -17,14 +17,15 @@ import {
 } from "lucide-react";
 
 interface AdminDashboardProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminDashboard({ params }: AdminDashboardProps) {
+export default async function AdminDashboard(props: AdminDashboardProps) {
+  const params = await props.params;
   const tenantSlug = params.tenant;
 
   // 1. Fetch Tenant Organisation

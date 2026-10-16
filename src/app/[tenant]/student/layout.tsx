@@ -8,12 +8,18 @@ import { isDemoMode } from "@/lib/runtime-mode";
 
 interface StudentLayoutProps {
   children: React.ReactNode;
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
-export default async function StudentLayout({ children, params }: StudentLayoutProps) {
+export default async function StudentLayout(props: StudentLayoutProps) {
+  const params = await props.params;
+
+  const {
+    children
+  } = props;
+
   const tenantSlug = params.tenant;
   let userName = "Chukwuemeka Eze";
 

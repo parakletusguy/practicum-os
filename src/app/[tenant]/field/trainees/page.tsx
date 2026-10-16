@@ -13,11 +13,12 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-export default async function FieldTraineesRosterPage({
-  params,
-}: {
-  params: { tenant: string };
-}) {
+export default async function FieldTraineesRosterPage(
+  props: {
+    params: Promise<{ tenant: string }>;
+  }
+) {
+  const params = await props.params;
   const tenant = await prisma.organisation.findUnique({
     where: { slug: params.tenant },
   });

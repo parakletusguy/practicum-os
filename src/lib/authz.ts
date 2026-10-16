@@ -36,7 +36,7 @@ export async function requireAuthenticatedActor(): Promise<AuthenticatedActor> {
     throw new AuthenticationError("Demo mode does not provide an authenticated actor.");
   }
 
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
   const authUserId = claimsData?.claims?.sub;
 

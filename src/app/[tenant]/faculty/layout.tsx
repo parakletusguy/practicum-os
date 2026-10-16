@@ -8,13 +8,18 @@ import { FacultySidebar } from "@/components/layout/FacultySidebar";
 import { FacultyHeader } from "@/components/layout/FacultyHeader";
 import { SidebarProvider } from "@/components/layout/SidebarContext";
 
-export default async function FacultySupervisorLayout({
-  children,
-  params,
-}: {
-  children: ReactNode;
-  params: { tenant: string };
-}) {
+export default async function FacultySupervisorLayout(
+  props: {
+    children: ReactNode;
+    params: Promise<{ tenant: string }>;
+  }
+) {
+  const params = await props.params;
+
+  const {
+    children
+  } = props;
+
   const demoMode = isDemoMode();
   let actorId: string | null = null;
   let tenantId: string | null = null;
