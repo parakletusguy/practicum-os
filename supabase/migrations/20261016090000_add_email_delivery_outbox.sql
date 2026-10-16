@@ -16,10 +16,10 @@ CREATE TYPE "EmailDeliveryStatus" AS ENUM (
 );
 
 CREATE TABLE public.email_deliveries (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
-  allocation_id uuid REFERENCES public.placement_allocations(id) ON DELETE CASCADE,
-  alert_id uuid REFERENCES public.early_warning_alerts(id) ON DELETE CASCADE,
+  id text PRIMARY KEY,
+  tenant_id text NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+  allocation_id text REFERENCES public.placement_allocations(id) ON DELETE CASCADE,
+  alert_id text REFERENCES public.early_warning_alerts(id) ON DELETE CASCADE,
   kind "EmailDeliveryKind" NOT NULL,
   recipient text NOT NULL,
   subject text NOT NULL,
