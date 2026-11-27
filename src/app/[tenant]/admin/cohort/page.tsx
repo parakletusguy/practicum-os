@@ -1,5 +1,8 @@
 import { requirePortalAccess } from "@/lib/portal-access";
+import Link from "next/link";
 import { db } from "@/lib/db";
+import { isDemoMode } from "@/lib/runtime-mode";
+import { rsuStudentIntakePath } from "@/modules/practicum-core/student-intake";
 import { 
   Users, 
   Upload, 
@@ -27,6 +30,7 @@ export default async function CohortPage(props: CohortPageProps) {
   const searchParams = await props.searchParams;
   const params = await props.params;
   const tenantSlug = params.tenant;
+  const hasStudentIntake = tenantSlug === "rsu" && !isDemoMode();
 
   const { tenant } = await requirePortalAccess(tenantSlug, "admin");
 
@@ -76,13 +80,14 @@ export default async function CohortPage(props: CohortPageProps) {
           </p>
         </div>
 
-        {currentCycle && (
-          <CohortImportClient
-            tenantSlug={tenantSlug}
-            cycleId={currentCycle.id}
-            cycleName={currentCycle.name}
-          />
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {hasStudentIntake && (
+            <Link href={rsuStudentIntakePath} className="rounded-md border border-emerald-700 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50">
+              Review Google Form responses
+            </Link>
+          )}
+          {currentCycle && <CohortImportClient tenantSlug={tenantSlug} cycleId={currentCycle.id} cycleName={currentCycle.name} />}
+        </div>
       </div>
 
       {/* Cycle Selector & Stats Cards */}
@@ -162,7 +167,7 @@ export default async function CohortPage(props: CohortPageProps) {
               {students.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-slate-500">
-                    No students currently enrolled in this cycle. Use the CSV Importer above to load your cohort list.
+                    No students currently enrolled in this cycle.
                   </td>
                 </tr>
               ) : (

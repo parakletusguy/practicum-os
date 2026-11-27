@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { SystemRole } from "@prisma/client";
 import { requireTenantRole } from "@/lib/authz";
 import { isDemoMode } from "@/lib/runtime-mode";
+import { cohortEnrollmentStatuses } from "./student-intake";
 
 export interface StudentImportRecord {
   firstName: string;
@@ -34,7 +35,7 @@ export async function importCohortStudentsAction(data: {
       ? await requireTenantRole(data.tenantSlug, [SystemRole.COORDINATOR, SystemRole.INSTITUTION_ADMIN])
       : null;
     const cycle = await db.practicumCycle.findFirst({
-      where: { id: data.cycleId, tenantId: tenant.id, status: { in: ["PLANNING", "CAPACITY_OPEN", "MATCHING"] } },
+      where: { id: data.cycleId, tenantId: tenant.id, status: { in: [...cohortEnrollmentStatuses] } },
       select: { id: true },
     });
     if (!cycle) {
