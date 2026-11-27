@@ -2,22 +2,26 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Shield, User, ChevronDown, Menu } from "lucide-react";
+import { Shield, ChevronDown, Menu } from "lucide-react";
 import { NetworkStatusBadge } from "@/components/ui/network-status-badge";
 import { NotificationCenter } from "@/components/layout/NotificationCenter";
 import { useSidebar } from "@/components/layout/SidebarContext";
 
 interface TenantHeaderProps {
   tenantSlug: string;
-  currentRole?: string;
-  userName?: string;
+  tenantName: string;
+  currentRole: string;
+  userName: string;
+  roleLabel?: string;
   allowRoleSwitch?: boolean;
 }
 
 export function TenantHeader({
   tenantSlug,
-  currentRole = "COORDINATOR",
-  userName = "Dr. Adebayo Ogunlesi",
+  tenantName,
+  currentRole,
+  userName,
+  roleLabel,
   allowRoleSwitch = false,
 }: TenantHeaderProps) {
   const { toggle } = useSidebar();
@@ -31,11 +35,12 @@ export function TenantHeader({
   ];
 
   const currentRoleObj = roles.find((r) => r.role === currentRole) || roles[0];
+  const initials = userName.trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase();
 
   return (
     <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-3 sm:px-6 z-20 sticky top-0">
       {/* Left side: Hamburger toggle + breadcrumb */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex min-w-0 items-center gap-2 pr-2 sm:gap-3">
         <button
           type="button"
           onClick={toggle}
@@ -45,13 +50,9 @@ export function TenantHeader({
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-slate-400 truncate max-w-[120px] sm:max-w-none">
-            UNILAG Social Work
-          </span>
-          <span className="hidden sm:inline text-slate-300">•</span>
-          <span className="hidden sm:inline text-xs font-medium text-slate-600">
-            Fieldwork Program
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-xs font-semibold text-slate-700 sm:text-sm">
+            {tenantName}
           </span>
         </div>
       </div>
@@ -123,16 +124,16 @@ export function TenantHeader({
         <NotificationCenter tenantSlug={tenantSlug} />
 
         {/* User Card */}
-        <div className="flex items-center gap-2 pl-1 sm:pl-2 border-l border-slate-200">
+        <div className="flex items-center gap-2 pl-1 sm:pl-2 border-l border-slate-200" title={`${userName} · ${roleLabel ?? currentRoleObj.label}`}>
           <div className="w-8 h-8 rounded-full bg-emerald-700 text-white flex items-center justify-center font-bold text-xs shadow-xs">
-            {userName.slice(0, 2).toUpperCase()}
+            {initials}
           </div>
           <div className="hidden xl:block text-left">
             <div className="text-xs font-bold text-slate-800 leading-tight">
               {userName}
             </div>
             <div className="text-[10px] text-emerald-600 font-medium">
-              Field Director
+              {roleLabel ?? currentRoleObj.label}
             </div>
           </div>
         </div>

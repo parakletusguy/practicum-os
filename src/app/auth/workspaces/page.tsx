@@ -31,6 +31,9 @@ export default async function WorkspacesPage() {
         distinct: ["cycleId"],
       }),
     ]);
+    if (memberships.some(({ role }) => role === "PLATFORM_SUPERADMIN")) {
+      workspaces.set("/platform", { name: "Platform administration", role: "Super administrator" });
+    }
     for (const { role, organisation } of memberships) {
       if (role === "STUDENT") workspaces.set(`/${organisation.slug}/student`, { name: organisation.name, role: "Student" });
       if (role === "ACADEMIC_SUPERVISOR") workspaces.set(`/${organisation.slug}/faculty`, { name: organisation.name, role: "Faculty supervisor" });
@@ -50,11 +53,11 @@ export default async function WorkspacesPage() {
     <main className="mx-auto max-w-2xl space-y-6 px-5 py-16">
       <h1 className="text-3xl font-bold text-slate-900">Your workspaces</h1>
       {workspaces.size ? (
-        <ul className="space-y-3">
+        <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
           {Array.from(workspaces, ([href, { name, role }]) => (
             <li key={href}>
-              <Link href={href} className="block rounded-lg border bg-white p-4 hover:border-emerald-600">
-                <span className="block font-semibold text-slate-900">{name}</span>
+              <Link href={href} className="block p-4 hover:bg-emerald-50">
+                <span className="block font-semibold text-emerald-900">{name}</span>
                 <span className="text-sm text-slate-600">{role}</span>
               </Link>
             </li>

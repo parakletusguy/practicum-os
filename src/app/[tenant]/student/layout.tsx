@@ -19,7 +19,7 @@ export default async function StudentLayout(props: StudentLayoutProps) {
   } = props;
 
   const tenantSlug = params.tenant;
-  const { actor } = await requirePortalAccess(tenantSlug, "student");
+  const { actor, tenant } = await requirePortalAccess(tenantSlug, "student");
   const userName = [actor.firstName, actor.lastName].join(" ");
 
   return (
@@ -29,6 +29,7 @@ export default async function StudentLayout(props: StudentLayoutProps) {
         <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
           <TenantHeader
             tenantSlug={tenantSlug}
+            tenantName={tenant.name}
             currentRole="STUDENT"
             userName={userName}
             allowRoleSwitch={isDemoMode()}

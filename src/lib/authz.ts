@@ -79,6 +79,16 @@ export const requireAuthenticatedActor = cache(async (): Promise<AuthenticatedAc
   return linkVerifiedActor(authUserId, email);
 });
 
+export async function requirePlatformAdmin(message?: string) {
+  const actor = await requireAuthenticatedActor();
+  const membership = await db.orgMembership.findFirst({
+    where: { personId: actor.id, status: "ACTIVE", role: "PLATFORM_SUPERADMIN" },
+    select: { id: true },
+  });
+  if (!membership) throw new AuthorizationError(message);
+  return actor;
+}
+
 export async function requireTenantRole(
   tenantSlug: string,
   allowedRoles: SystemRole[]
@@ -86,7 +96,7 @@ export async function requireTenantRole(
   const actor = await requireAuthenticatedActor();
   const tenant = await db.organisation.findUnique({
     where: { slug: tenantSlug },
-    select: { id: true, name: true, slug: true },
+    select: { id: true, name: true, slug: true, settings: true },
   });
 
   if (!tenant) {

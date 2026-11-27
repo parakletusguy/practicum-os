@@ -1,20 +1,14 @@
 import "server-only";
 
 import type { Prisma } from "@prisma/client";
-import { AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
+import { requirePlatformAdmin } from "@/lib/authz";
 import { db } from "@/lib/db";
 import { fieldSupervisorScope } from "@/lib/record-access";
 import { isDemoMode } from "@/lib/runtime-mode";
 
 export async function requireCommunityMatcher() {
   if (isDemoMode()) return null;
-  const actor = await requireAuthenticatedActor();
-  const membership = await db.orgMembership.findFirst({
-    where: { personId: actor.id, status: "ACTIVE", role: "PLATFORM_SUPERADMIN" },
-    select: { id: true },
-  });
-  if (!membership) throw new AuthorizationError("Only a designated platform administrator may access the care-matching desk.");
-  return actor;
+  return requirePlatformAdmin("Only a designated platform administrator may access the care-matching desk.");
 }
 
 export async function communityRecipientTargets(

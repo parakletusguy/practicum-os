@@ -8,7 +8,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { assertEmailDeliveryConfigured, sendEmailWithResend } from "@/lib/email/resend";
 import { getSupabasePublicConfig, isDemoMode } from "@/lib/runtime-mode";
-import { isRsuEmail, signInDestination } from "@/lib/sign-in";
+import { afterInstitutionSignIn, isRsuEmail } from "@/lib/sign-in";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { AuthorizationError, linkVerifiedActor } from "@/lib/authz";
 
@@ -22,7 +22,7 @@ function findPersonForSignIn(email: string) {
     where: { email },
     select: { id: true, isActive: true, roleMemberships: {
       where: { status: "ACTIVE" },
-      select: { organisation: { select: { slug: true } } },
+      select: { role: true, organisation: { select: { slug: true } } },
     } },
   });
 }
@@ -108,7 +108,8 @@ export async function confirmInstitutionCodeAction(rawEmail: string, rawToken: s
       return { success: false, message: invalid };
     }
     const hasRsuMembership = person?.roleMemberships.some(({ organisation }) => organisation.slug === "rsu");
-    if (rsuSignUp && !hasRsuMembership) {
+    const isPlatformAdmin = person?.roleMemberships.some(({ role }) => role === "PLATFORM_SUPERADMIN") ?? false;
+    if (rsuSignUp && !hasRsuMembership && !isPlatformAdmin) {
       const tenant = await db.organisation.findUnique({ where: { slug: "rsu" }, select: { id: true } });
       if (!tenant) return { success: false, message: "The RSU workspace has not been set up yet." };
       await db.auditLog.createMany({
@@ -122,7 +123,7 @@ export async function confirmInstitutionCodeAction(rawEmail: string, rawToken: s
       return { success: true, destination: "/rsu/access-requested" };
     }
     await linkVerifiedActor(user.id, email.data);
-    return { success: true, destination: signInDestination(next) };
+    return { success: true, destination: afterInstitutionSignIn(next, isPlatformAdmin) };
   } catch (error) {
     if (error instanceof AuthorizationError) return { success: false, message: "The email was verified, but its workspace access could not be confirmed. Contact your practicum office." };
     console.error("Institutional sign-in verification failed", error instanceof Error ? error.name : "unknown");

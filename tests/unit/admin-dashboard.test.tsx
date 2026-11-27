@@ -29,7 +29,12 @@ const render = async () => renderToStaticMarkup(await AdminDashboard({ params: P
 describe("institutional dashboard", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    mocks.portalAccess.mockResolvedValue({ actor: { id: "staff-1" }, tenant: { id: "rsu-id", name: "Rivers State University" } });
+    mocks.portalAccess.mockResolvedValue({
+      actor: { id: "staff-1" },
+      tenant: { id: "rsu-id", name: "Rivers State University", settings: {
+        fieldDirector: { personId: "staff-2", name: "Professor Mina Ogbanga" },
+      } },
+    });
     mocks.staff.mockResolvedValue([{ personId: "staff-1" }, { personId: "staff-2" }]);
     mocks.access.mockResolvedValue({ id: "admin-grant" });
   });
@@ -38,6 +43,7 @@ describe("institutional dashboard", () => {
     mocks.cycle.mockResolvedValue(null);
     const html = await render();
     expect(html).toContain("Social Work staff pilot");
+    expect(html).toContain("Professor Mina Ogbanga · Field Director");
     expect(html).toContain("2 staff accounts enabled");
     expect(html).toContain('href="/rsu/admin/access"');
     expect(html).toContain("No practicum cycle configured yet.");

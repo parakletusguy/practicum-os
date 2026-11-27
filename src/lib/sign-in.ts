@@ -5,7 +5,12 @@ export function signInDestination(value: string | null | undefined) {
   if (url.origin !== origin) return "/auth/workspaces";
   const { pathname, search } = url;
   const portal = /^\/[^/]+\/(admin|student|field|faculty)(?:\/|$)/.test(pathname);
-  return portal || pathname.startsWith("/gateways/") ? pathname + search : "/auth/workspaces";
+  return portal || pathname === "/platform" || pathname.startsWith("/gateways/") ? pathname + search : "/auth/workspaces";
+}
+
+export function afterInstitutionSignIn(next: string, isPlatformAdmin: boolean) {
+  const destination = signInDestination(next);
+  return isPlatformAdmin && destination === "/auth/workspaces" ? "/platform" : destination;
 }
 
 export function isCommunitySignUp(destination: string) {

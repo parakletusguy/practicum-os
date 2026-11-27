@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCommunitySignUp, isRsuEmail, signInDestination, signInErrorMessage } from "../../src/lib/sign-in";
+import { afterInstitutionSignIn, isCommunitySignUp, isRsuEmail, signInDestination, signInErrorMessage } from "../../src/lib/sign-in";
 
 describe("institutional sign-in", () => {
   it("returns users to their chosen internal workspace and preserves local filters", () => {
@@ -12,6 +12,13 @@ describe("institutional sign-in", () => {
     expect(signInDestination("https://outside.example/rsu/admin")).toBe("/auth/workspaces");
     expect(signInDestination("//outside.example/rsu/admin")).toBe("/auth/workspaces");
     expect(signInDestination("/\\outside.example/rsu/admin")).toBe("/auth/workspaces");
+  });
+
+  it("lands platform administrators in their dashboard and preserves an explicit workspace destination", () => {
+    expect(signInDestination("/platform")).toBe("/platform");
+    expect(afterInstitutionSignIn("/auth/workspaces", true)).toBe("/platform");
+    expect(afterInstitutionSignIn("/auth/workspaces", false)).toBe("/auth/workspaces");
+    expect(afterInstitutionSignIn("/rsu/admin", true)).toBe("/rsu/admin");
   });
 
   it("recognises exact RSU domains and retains the community registration flow", () => {

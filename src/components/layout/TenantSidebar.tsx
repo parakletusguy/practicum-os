@@ -28,9 +28,11 @@ interface TenantSidebarProps {
   tenantSlug: string;
   tenantName: string;
   canManageAccess: boolean;
+  canOpenPlatform: boolean;
+  demo: boolean;
 }
 
-export function TenantSidebar({ tenantSlug, tenantName, canManageAccess }: TenantSidebarProps) {
+export function TenantSidebar({ tenantSlug, tenantName, canManageAccess, canOpenPlatform, demo }: TenantSidebarProps) {
   const pathname = usePathname();
   const { isOpen, close } = useSidebar();
 
@@ -78,11 +80,11 @@ export function TenantSidebar({ tenantSlug, tenantName, canManageAccess }: Tenan
           href: `/${tenantSlug}/admin/postings`,
           icon: MailCheck,
         },
-        {
+        ...(canOpenPlatform || demo ? [{
           name: "Community Care Requests",
           href: `/${tenantSlug}/admin/needs`,
           icon: HeartHandshake,
-        },
+        }] : []),
       ],
     },
     {
@@ -161,10 +163,7 @@ export function TenantSidebar({ tenantSlug, tenantName, canManageAccess }: Tenan
                 <h2 className="text-sm font-bold text-white truncate" title={tenantName}>
                   {tenantName}
                 </h2>
-                <div className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Coordinator Portal
-                </div>
+                <div className="text-xs font-medium text-slate-300">Practicum administration</div>
               </div>
             </div>
 
@@ -179,25 +178,13 @@ export function TenantSidebar({ tenantSlug, tenantName, canManageAccess }: Tenan
             </button>
           </div>
 
-          {/* Active Cycle Badge */}
-          <div className="mt-3 p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 text-xs">
-            <div className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">
-              Active Placement Cycle
-            </div>
-            <div className="text-slate-200 font-medium truncate mt-0.5">
-              2026/27 SWK Practicum II
-            </div>
-            <div className="text-[10px] text-emerald-400 mt-1">
-              400 Required Hours • 2nd Semester
-            </div>
-          </div>
         </div>
 
         {/* Navigation Groups */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5 scrollbar-thin scrollbar-thumb-slate-800">
           {navigationGroups.map((group, idx) => (
             <div key={idx}>
-              <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+              <div className="mb-1 px-3 text-xs font-semibold text-slate-400">
                 {group.title}
               </div>
               <div className="space-y-0.5">
@@ -208,9 +195,10 @@ export function TenantSidebar({ tenantSlug, tenantName, canManageAccess }: Tenan
                     <Link
                       key={item.href}
                       href={item.href}
+                      aria-current={isActive ? "page" : undefined}
                       onClick={close}
                       className={cn(
-                        "flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all group",
+                        "group flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium transition-colors",
                         isActive
                           ? "bg-emerald-600/15 text-emerald-400 font-semibold"
                           : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
@@ -237,12 +225,12 @@ export function TenantSidebar({ tenantSlug, tenantName, canManageAccess }: Tenan
         {/* User Footer / Gateway link */}
         <div className="p-3 border-t border-slate-800 bg-slate-950/40">
           <Link
-            href="/"
+            href={canOpenPlatform ? "/platform" : demo ? "/" : "/auth/workspaces"}
             onClick={close}
-            className="flex items-center justify-between px-3 py-2 rounded-xl bg-slate-800/50 hover:bg-slate-800 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+            className="flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
           >
-            <span>Back to Main Site</span>
-            <ChevronRight className="w-3.5 h-3.5" />
+            <span>{canOpenPlatform ? "Platform administration" : demo ? "Return home" : "Your workspaces"}</span>
+            <ChevronRight aria-hidden="true" className="w-3.5 h-3.5" />
           </Link>
         </div>
       </aside>

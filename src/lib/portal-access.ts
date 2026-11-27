@@ -13,7 +13,7 @@ export const requirePortalAccess = cache(async (tenantSlug: string, portal: Demo
   if (isDemoMode()) {
     if (tenantSlug !== persona.tenantSlug) notFound();
     const [tenant, actor] = await Promise.all([
-      db.organisation.findUnique({ where: { slug: tenantSlug }, select: { id: true, name: true, slug: true } }),
+      db.organisation.findUnique({ where: { slug: tenantSlug }, select: { id: true, name: true, slug: true, settings: true } }),
       db.person.findUnique({ where: { email: persona.email }, select: { id: true, email: true, firstName: true, lastName: true } }),
     ]);
     if (!tenant || !actor) notFound();

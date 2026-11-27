@@ -2,6 +2,7 @@ import { requirePortalAccess } from "@/lib/portal-access";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { isDemoMode } from "@/lib/runtime-mode";
+import { fieldDirectorFromSettings } from "@/lib/institution-settings";
 import { formatDate, formatMinutesToHours } from "@/lib/utils";
 import { 
   Users, 
@@ -29,6 +30,7 @@ export default async function AdminDashboard(props: AdminDashboardProps) {
   const params = await props.params;
   const tenantSlug = params.tenant;
   const { actor, tenant } = await requirePortalAccess(tenantSlug, "admin");
+  const director = fieldDirectorFromSettings(tenant.settings);
 
   const activeCycle = await db.practicumCycle.findFirst({
     where: {
@@ -67,11 +69,10 @@ export default async function AdminDashboard(props: AdminDashboardProps) {
     const adminPath = "/" + tenantSlug + "/admin";
     return (
       <div className="mx-auto max-w-4xl space-y-5">
-        <section className="rounded-2xl bg-slate-900 p-6 text-white sm:p-8">
-          <p className="text-sm font-medium text-emerald-300">{tenant.name}</p>
-          <h1 className="mt-2 text-2xl font-bold sm:text-3xl">{tenantSlug === "rsu" ? "Social Work staff pilot" : "Practicum setup"}</h1>
-          <p className="mt-2 max-w-xl text-sm text-slate-300">Staff can sign in and review their roles before student fieldwork starts.</p>
-        </section>
+        <header className="border-b border-slate-200 pb-5">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">{tenantSlug === "rsu" ? "Social Work staff pilot" : "Practicum setup"}</h1>
+          {director && <p className="mt-2 text-sm text-slate-700">{director.name} · Field Director</p>}
+        </header>
         <div className="grid gap-4 sm:grid-cols-2">
           <section className="space-y-3 rounded-xl border bg-white p-5">
             <h2 className="font-semibold">Staff access</h2>
@@ -135,6 +136,7 @@ export default async function AdminDashboard(props: AdminDashboardProps) {
           <p className="text-slate-300 text-xs sm:text-sm mt-1">
             {activeCycle.programme?.name ?? "Field Education"} • {activeCycle.academicYear} • Target: {activeCycle.requiredHours} Hours
           </p>
+          {director && <p className="mt-2 text-sm text-slate-300">{director.name} · Field Director</p>}
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
