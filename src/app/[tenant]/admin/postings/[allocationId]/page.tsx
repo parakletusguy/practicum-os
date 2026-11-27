@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
 
 export default async function PostingLetterPage(props: PostingLetterPageProps) {
   const params = await props.params;
-  await requirePortalAccess(params.tenant, "admin");
+  const { tenant } = await requirePortalAccess(params.tenant, "admin");
   const { tenant: tenantSlug, allocationId } = params;
 
   const allocation = await db.placementAllocation.findUnique({
@@ -56,12 +56,14 @@ export default async function PostingLetterPage(props: PostingLetterPageProps) {
     notFound();
   }
 
-  const university = allocation.cycle.programme?.department.organisation.name || "University of Lagos";
+  const university = tenant.name;
+  const institution = allocation.cycle.programme?.department.organisation;
   const department = allocation.cycle.programme?.department.name || "Department of Social Work";
   const programme = allocation.cycle.programme?.name || "Bachelor of Science in Social Work";
 
-  const letterRef = allocation.postingLetterRef || "UNILAG/SWK/2026/PL-PENDING";
-  const letterDate = allocation.postedAt ? formatDate(allocation.postedAt) : formatDate(new Date());
+  const issued = Boolean(allocation.postedAt && allocation.postingLetterRef);
+  const letterRef = allocation.postingLetterRef ?? "Pending issuance";
+  const letterDate = allocation.postedAt ? formatDate(allocation.postedAt) : "Pending issuance";
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto py-4">
@@ -100,7 +102,7 @@ export default async function PostingLetterPage(props: PostingLetterPageProps) {
             Directorate of Field Education, Practicum & Community Welfare
           </div>
           <div className="text-[10px] text-slate-400 font-sans mt-0.5">
-            University Road, Akoka, Yaba, Lagos, Nigeria • Web: practicum.unilag.edu.ng
+            {[institution?.address, institution?.city, institution?.country].filter(Boolean).join(", ")}
           </div>
         </div>
 
@@ -185,26 +187,12 @@ export default async function PostingLetterPage(props: PostingLetterPageProps) {
           </p>
         </div>
 
-        {/* Official Signatory & Seal */}
-        <div className="mt-12 pt-6 flex items-end justify-between font-sans">
-          <div className="space-y-1">
-            <div className="w-32 h-10 border-b border-slate-400 flex items-center justify-center italic text-emerald-800 font-serif text-sm">
-              A. Ogunlesi
-            </div>
-            <div className="font-bold text-xs text-slate-900">Dr. Adebayo Ogunlesi, Ph.D, RSW</div>
-            <div className="text-[11px] text-slate-500">Director of Field Education & Practicum</div>
-            <div className="text-[10px] text-slate-400">Department of Social Work, University of Lagos</div>
+        <div className="mt-12 flex flex-wrap justify-between gap-4 border-t pt-6 text-xs">
+          <div>
+            <p className="font-semibold text-slate-900">Field Education Office</p>
+            <p>{department}, {university}</p>
           </div>
-
-          <div className="text-right">
-            <div className="inline-block p-3 rounded-xl border-2 border-emerald-800/40 bg-emerald-50/30 text-emerald-950 text-center">
-              <div className="text-[10px] font-bold uppercase tracking-wider">Official University Seal</div>
-              <div className="text-[9px] text-slate-500 font-mono mt-0.5">CHECKSUM: {allocation.id.slice(0, 18)}</div>
-              <div className="text-[9px] text-emerald-700 font-semibold mt-1 flex items-center justify-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> VERIFIED CREDENTIAL
-              </div>
-            </div>
-          </div>
+          <div className="rounded-lg border px-3 py-2 font-semibold text-slate-700">{issued ? "Posting letter issued" : "Draft posting letter"}</div>
         </div>
       </div>
     </div>

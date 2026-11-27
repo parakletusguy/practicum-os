@@ -6,7 +6,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "PracticumOS | Practicum coordination workspace",
   description:
-    "A preview workspace for coordinating student placements, fieldwork review, supervision, and assessment.",
+    "A workspace for coordinating student placements, fieldwork review, supervision, and assessment.",
   keywords: [
     "practicum management software",
     "field education workspace",
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "PracticumOS — Practicum coordination workspace",
     description:
-      "A preview workspace for field education and practicum coordination.",
+      "A workspace for field education and practicum coordination.",
   },
   manifest: "/manifest.json",
 };

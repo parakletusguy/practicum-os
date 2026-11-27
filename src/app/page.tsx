@@ -10,6 +10,7 @@ import {
   Users,
 } from "lucide-react";
 import { PublicNavbar } from "@/components/layout/Navbar";
+import { isDemoMode } from "@/lib/runtime-mode";
 
 const lifecycle = [
   "Set up a practicum cycle and student cohort",
@@ -22,34 +23,33 @@ const portals = [
   {
     title: "Students",
     description: "Record fieldwork, review feedback, and follow placement progress.",
-    href: "/unilag/student",
+    href: "/auth/login",
     icon: GraduationCap,
     accent: "text-blue-700 bg-blue-50 border-blue-100",
   },
   {
     title: "Institutions",
     description: "Manage cycles, agencies, matching, and cohort-level results.",
-    href: "/unilag/admin",
+    href: "/auth/login",
     icon: Building2,
     accent: "text-emerald-700 bg-emerald-50 border-emerald-100",
   },
   {
     title: "Field supervisors",
     description: "Review practice entries and complete structured evaluations.",
-    href: "/unilag/field",
+    href: "/auth/login",
     icon: Users,
     accent: "text-violet-700 bg-violet-50 border-violet-100",
   },
 ];
 
 export default function HomePage() {
+  const demo = isDemoMode();
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <PublicNavbar />
 
-      <section className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-xs font-medium text-amber-900">
-        Preview environment — sample data and demo roles are available while production sign-in is being completed.
-      </section>
+      {demo && <section className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-xs font-medium text-amber-900">Local demo workspace</section>}
 
       <section className="relative overflow-hidden bg-slate-950 px-4 py-20 text-white sm:px-6 sm:py-28 lg:px-8">
         <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(#34d399_1px,transparent_1px)] [background-size:24px_24px]" />
@@ -69,15 +69,15 @@ export default function HomePage() {
               href="/auth/login"
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-400 px-5 py-3 text-sm font-bold text-slate-950 transition-colors hover:bg-emerald-300"
             >
-              Explore the demo
+              {demo ? "Explore the demo" : "Sign in to PracticumOS"}
               <ArrowRight className="h-4 w-4" />
             </Link>
-            <a
-              href="#how-it-works"
+            <Link
+              href="/rsu"
               className="inline-flex items-center justify-center rounded-xl border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-100 transition-colors hover:bg-slate-800"
             >
-              See how it works
-            </a>
+              Rivers State University pilot
+            </Link>
           </div>
         </div>
       </section>
@@ -111,7 +111,7 @@ export default function HomePage() {
               <h2 className="mt-2 text-3xl font-bold tracking-tight">Give each participant a focused next step.</h2>
             </div>
             <Link href="/auth/login" className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-700 hover:text-emerald-800">
-              Open the demo <ArrowRight className="h-4 w-4" />
+              Sign in to your workspace <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
 

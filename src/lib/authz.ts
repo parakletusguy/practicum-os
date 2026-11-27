@@ -48,6 +48,7 @@ export const requireAuthenticatedActor = cache(async (): Promise<AuthenticatedAc
 
   let person = await db.person.findUnique({ where: { authUserId } });
   if (person) {
+    if (!person.isActive) throw new AuthorizationError("Your account has been disabled.");
     return person;
   }
 
@@ -59,17 +60,17 @@ export const requireAuthenticatedActor = cache(async (): Promise<AuthenticatedAc
   }
 
   const existingPerson = await db.person.findUnique({ where: { email } });
-  if (!existingPerson || existingPerson.authUserId) {
+  if (!existingPerson?.isActive || existingPerson.authUserId) {
     throw new AuthorizationError("Your account has not been provisioned for PracticumOS.");
   }
 
   await db.person.updateMany({
-    where: { id: existingPerson.id, authUserId: null },
+    where: { id: existingPerson.id, authUserId: null, isActive: true },
     data: { authUserId },
   });
 
   person = await db.person.findUnique({ where: { authUserId } });
-  if (!person) {
+  if (!person?.isActive) {
     throw new AuthenticationError("Your account link could not be verified.");
   }
 

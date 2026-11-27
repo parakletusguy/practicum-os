@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { updateMembershipAction } from "@/modules/practicum-core/membership-actions";
 
-export function MembershipForm({ tenantSlug, membershipId }: { tenantSlug: string; membershipId?: string }) {
+export function MembershipForm({ tenantSlug, membershipId, requestedEmail }: { tenantSlug: string; membershipId?: string; requestedEmail?: string }) {
   const [state, action, pending] = useActionState(
     updateMembershipAction.bind(null, tenantSlug),
     { success: false, message: "" },
@@ -16,7 +16,7 @@ export function MembershipForm({ tenantSlug, membershipId }: { tenantSlug: strin
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="space-y-1 text-sm">First name<input required name="firstName" className={inputStyle} /></label>
           <label className="space-y-1 text-sm">Last name<input required name="lastName" className={inputStyle} /></label>
-          <label className="space-y-1 text-sm">Email<input required type="email" name="email" className={inputStyle} /></label>
+          <label className="space-y-1 text-sm">Email<input required type="email" name="email" defaultValue={requestedEmail} readOnly={Boolean(requestedEmail)} className={inputStyle} /></label>
           <label className="space-y-1 text-sm">Role
             <select name="role" className={inputStyle}>
               <option value="STUDENT">Student</option>

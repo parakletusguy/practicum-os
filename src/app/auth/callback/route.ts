@@ -1,28 +1,25 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabasePublicConfig } from "@/lib/runtime-mode";
-
-function safeNextPath(value: string | null, origin: string) {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) {
-    return "/auth/workspaces";
-  }
-
-  const destination = new URL(value, origin);
-  return destination.origin === origin ? destination.pathname + destination.search : "/auth/workspaces";
-}
+import { signInDestination } from "@/lib/sign-in";
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const config = getSupabasePublicConfig();
   const loginUrl = new URL("/auth/login", request.url);
 
-  if (!code || !config) {
+  const tokenHash = request.nextUrl.searchParams.get("token_hash");
+  const type = request.nextUrl.searchParams.get("type");
+  const supportsToken = tokenHash && type === "email";
+  const next = signInDestination(request.nextUrl.searchParams.get("next"));
+  if (next !== "/auth/workspaces") loginUrl.searchParams.set("next", next);
+  if ((!code && !supportsToken) || !config) {
     loginUrl.searchParams.set("error", "authentication");
     return NextResponse.redirect(loginUrl);
   }
 
   const response = NextResponse.redirect(
-    new URL(safeNextPath(request.nextUrl.searchParams.get("next"), request.nextUrl.origin), request.url)
+    new URL(next, request.url)
   );
   const supabase = createServerClient(config.url, config.key, {
     cookies: {
@@ -37,7 +34,9 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  const { error } = code
+    ? await supabase.auth.exchangeCodeForSession(code)
+    : await supabase.auth.verifyOtp({ token_hash: tokenHash!, type: "email" });
   if (!error) {
     return response;
   }

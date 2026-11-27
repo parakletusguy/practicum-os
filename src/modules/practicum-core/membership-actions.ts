@@ -74,7 +74,7 @@ export async function updateMembershipAction(
       } });
     });
     revalidatePath(`/${tenant.slug}/admin/access`);
-    return { success: true, message: data.operation === "grant" ? "Access granted. The user can request a sign-in link." : "Membership suspended." };
+    return { success: true, message: data.operation === "grant" ? "Access granted. The user can request a sign-in code." : "Membership suspended." };
   } catch (error) {
     if (error instanceof AuthenticationError || error instanceof AuthorizationError) {
       return { success: false, message: error.message };

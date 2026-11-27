@@ -11,20 +11,37 @@ export default async function AccessPage({ params }: { params: Promise<{ tenant:
     if (error instanceof AuthenticationError || error instanceof AuthorizationError) notFound();
     throw error;
   });
-  const memberships = await db.orgMembership.findMany({
+  const [memberships, requests] = await Promise.all([db.orgMembership.findMany({
     where: { organisationId: tenant.id, role: { in: ["COORDINATOR", "ACADEMIC_SUPERVISOR", "FIELD_SUPERVISOR", "STUDENT"] } },
     select: { id: true, role: true, status: true, person: { select: { id: true, firstName: true, lastName: true, email: true } } },
     orderBy: [{ person: { lastName: "asc" } }, { role: "asc" }],
-  });
+  }), tenant.slug === "rsu" ? db.auditLog.findMany({
+    where: { tenantId: tenant.id, actionType: "RSU_PILOT_ACCESS_REQUESTED", resourceType: "AuthIdentity" },
+    select: { id: true, afterState: true, createdAt: true },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  }) : []]);
+  const assigned = new Set(memberships.filter(({ status }) => status === "ACTIVE").map(({ person }) => person.email));
+  const pending = requests.flatMap(({ id, afterState, createdAt }) =>
+    afterState && typeof afterState === "object" && !Array.isArray(afterState) &&
+      typeof afterState.email === "string" && !assigned.has(afterState.email) ? [{ id, email: afterState.email, createdAt }] : [],
+  );
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <h1 className="text-2xl font-bold text-slate-900">Institutional access</h1>
       <section className="space-y-4 rounded-xl border bg-white p-5">
         <h2 className="text-lg font-semibold">Grant a role</h2>
-        <p className="text-sm text-slate-600">Enter the email the user will use to sign in. They can then request a sign-in link from PracticumOS.</p>
+        <p className="text-sm text-slate-600">Enter the email the user will use to sign in. They can then request a sign-in code from PracticumOS.</p>
         <MembershipForm tenantSlug={tenant.slug} />
       </section>
+      {tenant.slug === "rsu" && <section className="space-y-3 rounded-xl border bg-white p-5">
+        <h2 className="text-lg font-semibold">Verified email requests</h2>
+        {!pending.length && <p className="text-sm text-slate-600">No pending requests.</p>}
+        {pending.map(({ id, email, createdAt }) => <details key={id} className="border-t pt-2">
+          <summary className="cursor-pointer break-all text-sm font-medium">{email} · {createdAt.toISOString().slice(0, 10)}</summary>
+          <div className="mt-3"><MembershipForm tenantSlug={tenant.slug} requestedEmail={email} /></div>
+        </details>)}
+      </section>}
       <section className="space-y-3 rounded-xl border bg-white p-5">
         <h2 className="text-lg font-semibold">Institutional memberships</h2>
         {memberships.length === 0 && <p className="text-sm text-slate-600">No memberships have been added.</p>}

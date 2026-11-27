@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AuthenticationError, AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
 import { db } from "@/lib/db";
 import { isDemoMode } from "@/lib/runtime-mode";
+import { signOutAction } from "@/app/auth/login/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +63,10 @@ export default async function WorkspacesPage() {
       ) : (
         <p className="text-slate-700">No institutional workspace is available for this account. Ask your practicum office to confirm your email and role.</p>
       )}
-      <Link href="/" className="text-sm font-semibold text-emerald-700 underline">Return home</Link>
+      <div className="flex gap-5 text-sm font-semibold text-emerald-700">
+        <Link href="/" className="underline">Return home</Link>
+        <form action={signOutAction}><button className="underline">Sign out</button></form>
+      </div>
     </main>
   );
 }

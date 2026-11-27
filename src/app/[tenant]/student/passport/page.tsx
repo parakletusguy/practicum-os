@@ -149,7 +149,7 @@ export default async function StudentPassportPage(props: StudentPassportPageProp
               {cycle?.programme?.name ?? "Bachelor of Social Work"}
             </div>
             <div className="text-xs text-slate-500 mt-0.5">
-              {cycle?.programme?.department.organisation.name ?? "University of Lagos"}
+              {cycle?.programme?.department.organisation.name ?? tenant.name}
             </div>
           </div>
 

@@ -101,7 +101,7 @@ export default async function GuidePage(props: GuidePageProps) {
               Welcome from the Directorate of Field Education
             </h3>
             <p className="text-xs text-slate-500">
-              Department of Social Work • University of Lagos
+              Department of Social Work · {tenant.name}
             </p>
           </div>
         </div>
