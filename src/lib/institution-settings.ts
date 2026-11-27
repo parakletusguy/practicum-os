@@ -1,5 +1,9 @@
 import type { Prisma } from "@prisma/client";
 
+export function isDemoInstitution(settings: Prisma.JsonValue) {
+  return settings !== null && typeof settings === "object" && !Array.isArray(settings) && settings.demo === true;
+}
+
 export function fieldDirectorFromSettings(settings: Prisma.JsonValue | undefined) {
   if (!settings || typeof settings !== "object" || Array.isArray(settings)) return null;
   const { fieldDirector } = settings;

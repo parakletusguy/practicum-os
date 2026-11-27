@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { signOutAction } from "@/app/auth/login/actions";
 import { AuthenticationError, AuthorizationError, requirePlatformAdmin } from "@/lib/authz";
 import { db } from "@/lib/db";
-import { fieldDirectorFromSettings } from "@/lib/institution-settings";
+import { fieldDirectorFromSettings, isDemoInstitution } from "@/lib/institution-settings";
 
 export const metadata: Metadata = { title: "Platform administration · PracticumOS" };
 export const dynamic = "force-dynamic";
@@ -16,24 +16,22 @@ export default async function PlatformPage() {
     throw error;
   });
 
-  const [institutions, openRequests] = await Promise.all([
-    db.organisation.findMany({
-      where: { tenantId: null, orgType: { in: ["UNIVERSITY", "COLLEGE"] } },
-      orderBy: { name: "asc" },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        settings: true,
-        _count: { select: { practicumCycles: { where: { status: "ACTIVE" } } } },
-        memberships: {
-          where: { personId: actor.id, status: "ACTIVE", role: { in: ["INSTITUTION_ADMIN", "COORDINATOR"] } },
-          select: { role: true },
-        },
+  const organisations = await db.organisation.findMany({
+    where: { tenantId: null, orgType: { in: ["UNIVERSITY", "COLLEGE"] } },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      settings: true,
+      _count: { select: { practicumCycles: { where: { status: "ACTIVE" } } } },
+      memberships: {
+        where: { personId: actor.id, status: "ACTIVE", role: { in: ["INSTITUTION_ADMIN", "COORDINATOR"] } },
+        select: { role: true },
       },
-    }),
-    db.needRequest.count({ where: { status: "OPEN" } }),
-  ]);
+    },
+  });
+  const institutions = organisations.filter(({ settings }) => !isDemoInstitution(settings));
   const activeCycles = institutions.reduce((total, { _count }) => total + _count.practicumCycles, 0);
   const textLink = "font-semibold text-emerald-800 underline underline-offset-4 hover:text-emerald-950";
 
@@ -55,7 +53,7 @@ export default async function PlatformPage() {
           <p className="text-sm text-slate-600">{actor.firstName} {actor.lastName} · Super administrator</p>
         </div>
 
-        <dl className="grid grid-cols-3 gap-x-3 border-y border-slate-200 py-5 sm:gap-x-6">
+        <dl className="grid grid-cols-2 gap-x-3 border-y border-slate-200 py-5 sm:max-w-md sm:gap-x-6">
           <div className="flex flex-col justify-between gap-1">
             <dt className="text-sm text-slate-600">Institutions</dt>
             <dd className="text-2xl font-semibold tabular-nums">{institutions.length}</dd>
@@ -63,10 +61,6 @@ export default async function PlatformPage() {
           <div className="flex flex-col justify-between gap-1">
             <dt className="text-sm text-slate-600">Active practicum cycles</dt>
             <dd className="text-2xl font-semibold tabular-nums">{activeCycles}</dd>
-          </div>
-          <div className="flex flex-col justify-between gap-1">
-            <dt className="text-sm text-slate-600">Open community requests</dt>
-            <dd className="text-2xl font-semibold tabular-nums">{openRequests}</dd>
           </div>
         </dl>
 

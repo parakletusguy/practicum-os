@@ -104,6 +104,7 @@ async function main() {
       address: "University Road, Akoka, Yaba",
       city: "Lagos",
       country: "Nigeria",
+      settings: { demo: true },
       branding: {
         primaryColor: "#15803d",
         secondaryColor: "#0f172a",
