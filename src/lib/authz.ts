@@ -21,6 +21,8 @@ export class AuthorizationError extends Error {
   }
 }
 
+export class WorkspaceUnavailableError extends AuthorizationError {}
+
 type AuthenticatedActor = {
   id: string;
   email: string;
@@ -96,11 +98,11 @@ export async function requireTenantRole(
   const actor = await requireAuthenticatedActor();
   const tenant = await db.organisation.findUnique({
     where: { slug: tenantSlug },
-    select: { id: true, name: true, slug: true, settings: true },
+    select: { id: true, name: true, slug: true, settings: true, verificationStatus: true },
   });
 
-  if (!tenant) {
-    throw new AuthorizationError("The requested institution does not exist.");
+  if (!tenant || tenant.verificationStatus === "SUSPENDED") {
+    throw new WorkspaceUnavailableError("The requested institution is unavailable.");
   }
 
   const hasTenantMembership = await db.orgMembership.findFirst({

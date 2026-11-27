@@ -20,11 +20,12 @@ export default async function WorkspacesPage() {
     const [memberships, placements] = await Promise.all([
       db.orgMembership.findMany({
         where: { personId: actor.id, status: "ACTIVE" },
-        select: { role: true, organisation: { select: { slug: true, name: true, orgType: true } } },
+        select: { role: true, organisation: { select: { slug: true, name: true, orgType: true, verificationStatus: true } } },
       }),
       db.placementAllocation.findMany({
         where: {
           fieldSupervisorId: actor.id,
+          cycle: { tenant: { verificationStatus: { not: "SUSPENDED" } } },
           hostOrg: { memberships: { some: { personId: actor.id, role: "FIELD_SUPERVISOR", status: "ACTIVE" } } },
         },
         select: { cycle: { select: { tenant: { select: { slug: true, name: true } } } } },
@@ -35,6 +36,7 @@ export default async function WorkspacesPage() {
       workspaces.set("/platform", { name: "Platform administration", role: "Super administrator" });
     }
     for (const { role, organisation } of memberships) {
+      if (organisation.verificationStatus === "SUSPENDED") continue;
       if (role === "STUDENT") workspaces.set(`/${organisation.slug}/student`, { name: organisation.name, role: "Student" });
       if (role === "ACADEMIC_SUPERVISOR") workspaces.set(`/${organisation.slug}/faculty`, { name: organisation.name, role: "Faculty supervisor" });
       if (role === "FIELD_SUPERVISOR" && (organisation.orgType === "UNIVERSITY" || organisation.orgType === "COLLEGE")) {

@@ -4,7 +4,7 @@ import { SystemRole } from "@prisma/client";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
 import { DEMO_PERSONAS, type DemoPersonaKey } from "@/lib/auth-personas";
-import { AuthenticationError, AuthorizationError, requireTenantRole } from "@/lib/authz";
+import { AuthenticationError, AuthorizationError, requireTenantRole, WorkspaceUnavailableError } from "@/lib/authz";
 import { db } from "@/lib/db";
 import { isDemoMode } from "@/lib/runtime-mode";
 
@@ -24,6 +24,7 @@ export const requirePortalAccess = cache(async (tenantSlug: string, portal: Demo
     const roles = portal === "admin" ? [SystemRole.COORDINATOR, SystemRole.INSTITUTION_ADMIN] : [persona.role];
     return await requireTenantRole(tenantSlug, roles);
   } catch (error) {
+    if (error instanceof WorkspaceUnavailableError) notFound();
     if (error instanceof AuthenticationError || error instanceof AuthorizationError) {
       redirect("/auth/login?error=access");
     }
