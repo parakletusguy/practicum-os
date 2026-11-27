@@ -10,6 +10,7 @@ import { assertEmailDeliveryConfigured, sendEmailWithResend } from "@/lib/email/
 import { getSupabasePublicConfig, isDemoMode } from "@/lib/runtime-mode";
 import { isRsuEmail, signInDestination } from "@/lib/sign-in";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { AuthorizationError, linkVerifiedActor } from "@/lib/authz";
 
 const emailSchema = z.string().trim().toLowerCase().email().max(254);
 const tokenSchema = z.string().trim().regex(/^\d{6,10}$/);
@@ -103,8 +104,11 @@ export async function confirmInstitutionCodeAction(rawEmail: string, rawToken: s
     const result = await supabase.auth.verifyOtp({ email: email.data, token: token.data, type: "email" });
     if (result.error || !result.data.session) return { success: false, message: invalid };
     const user = result.data.user;
+    if (!user?.email_confirmed_at || user.email?.toLowerCase() !== email.data) {
+      return { success: false, message: invalid };
+    }
     const hasRsuMembership = person?.roleMemberships.some(({ organisation }) => organisation.slug === "rsu");
-    if (rsuSignUp && !hasRsuMembership && user?.email_confirmed_at && user.email?.toLowerCase() === email.data) {
+    if (rsuSignUp && !hasRsuMembership) {
       const tenant = await db.organisation.findUnique({ where: { slug: "rsu" }, select: { id: true } });
       if (!tenant) return { success: false, message: "The RSU workspace has not been set up yet." };
       await db.auditLog.createMany({
@@ -117,8 +121,10 @@ export async function confirmInstitutionCodeAction(rawEmail: string, rawToken: s
       });
       return { success: true, destination: "/rsu/access-requested" };
     }
+    await linkVerifiedActor(user.id, email.data);
     return { success: true, destination: signInDestination(next) };
   } catch (error) {
+    if (error instanceof AuthorizationError) return { success: false, message: "The email was verified, but its workspace access could not be confirmed. Contact your practicum office." };
     console.error("Institutional sign-in verification failed", error instanceof Error ? error.name : "unknown");
     return { success: false, message: "Could not verify sign-in right now. Try again shortly." };
   }

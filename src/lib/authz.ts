@@ -28,6 +28,23 @@ type AuthenticatedActor = {
   lastName: string;
 };
 
+export async function linkVerifiedActor(authUserId: string, email: string): Promise<AuthenticatedActor> {
+  const existingPerson = await db.person.findUnique({ where: { email } });
+  if (!existingPerson?.isActive) throw new AuthorizationError("Your account has not been provisioned for PracticumOS.");
+  if (existingPerson.authUserId === authUserId) return existingPerson;
+  if (existingPerson.authUserId) throw new AuthorizationError("Your account is already linked to a different identity.");
+
+  await db.person.updateMany({
+    where: { id: existingPerson.id, authUserId: null, isActive: true },
+    data: { authUserId },
+  });
+  const linkedPerson = await db.person.findUnique({ where: { id: existingPerson.id } });
+  if (!linkedPerson?.isActive || linkedPerson.authUserId !== authUserId) {
+    throw new AuthorizationError("Your account link could not be verified.");
+  }
+  return linkedPerson;
+}
+
 /**
  * Maps a verified Supabase identity to an existing application Person.
  * The first matching, verified email link is atomic, so a person cannot be
@@ -46,7 +63,7 @@ export const requireAuthenticatedActor = cache(async (): Promise<AuthenticatedAc
     throw new AuthenticationError();
   }
 
-  let person = await db.person.findUnique({ where: { authUserId } });
+  const person = await db.person.findUnique({ where: { authUserId } });
   if (person) {
     if (!person.isActive) throw new AuthorizationError("Your account has been disabled.");
     return person;
@@ -59,22 +76,7 @@ export const requireAuthenticatedActor = cache(async (): Promise<AuthenticatedAc
     throw new AuthenticationError("Your verified account does not have an email address.");
   }
 
-  const existingPerson = await db.person.findUnique({ where: { email } });
-  if (!existingPerson?.isActive || existingPerson.authUserId) {
-    throw new AuthorizationError("Your account has not been provisioned for PracticumOS.");
-  }
-
-  await db.person.updateMany({
-    where: { id: existingPerson.id, authUserId: null, isActive: true },
-    data: { authUserId },
-  });
-
-  person = await db.person.findUnique({ where: { authUserId } });
-  if (!person?.isActive) {
-    throw new AuthenticationError("Your account link could not be verified.");
-  }
-
-  return person;
+  return linkVerifiedActor(authUserId, email);
 });
 
 export async function requireTenantRole(
