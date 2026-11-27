@@ -1,5 +1,6 @@
+import { fieldSupervisorScope } from "@/lib/record-access";
+import { requirePortalAccess } from "@/lib/portal-access";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import {
   Users,
@@ -19,24 +20,13 @@ export default async function FieldTraineesRosterPage(
   }
 ) {
   const params = await props.params;
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
+  const { actor, tenant } = await requirePortalAccess(params.tenant, "field");
 
-  if (!tenant) {
-    notFound();
-  }
-
-  const fieldSupervisor = await prisma.person.findFirst({
-    where: {
-      roleMemberships: {
-        some: {
-          role: "FIELD_SUPERVISOR",
-        },
-      },
-    },
+  const fieldSupervisor = await prisma.person.findUnique({
+    where: { id: actor.id },
     include: {
       fieldSupervisedAllocations: {
+        where: fieldSupervisorScope(actor.id, tenant.id),
         include: {
           cycle: true,
           cohortStudent: {

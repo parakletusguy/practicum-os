@@ -1,10 +1,9 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import { TenantSidebar } from "@/components/layout/TenantSidebar";
 import { TenantHeader } from "@/components/layout/TenantHeader";
 import { SidebarProvider } from "@/components/layout/SidebarContext";
-import { SystemRole } from "@prisma/client";
-import { redirect } from "next/navigation";
-import { requireTenantRole } from "@/lib/authz";
 import { isDemoMode } from "@/lib/runtime-mode";
+import { db } from "@/lib/db";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -21,24 +20,17 @@ export default async function AdminLayout(props: AdminLayoutProps) {
   } = props;
 
   const tenantSlug = params.tenant;
-  let tenantName = tenantSlug === "unilag" ? "University of Lagos" : "Practicum Institution";
-
-  if (!isDemoMode()) {
-    try {
-      const { tenant } = await requireTenantRole(tenantSlug, [
-        SystemRole.COORDINATOR,
-        SystemRole.INSTITUTION_ADMIN,
-      ]);
-      tenantName = tenant.name;
-    } catch {
-      redirect("/auth/login?error=access");
-    }
-  }
+  const { actor, tenant } = await requirePortalAccess(tenantSlug, "admin");
+  const tenantName = tenant.name;
+  const canManageAccess = !isDemoMode() && Boolean(await db.orgMembership.findFirst({
+    where: { personId: actor.id, organisationId: tenant.id, role: "INSTITUTION_ADMIN", status: "ACTIVE" },
+    select: { id: true },
+  }));
 
   return (
     <SidebarProvider>
       <div className="flex h-screen w-full bg-slate-50 overflow-hidden font-sans">
-        <TenantSidebar tenantSlug={tenantSlug} tenantName={tenantName} />
+        <TenantSidebar tenantSlug={tenantSlug} tenantName={tenantName} canManageAccess={canManageAccess} />
         <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
           <TenantHeader
             tenantSlug={tenantSlug}

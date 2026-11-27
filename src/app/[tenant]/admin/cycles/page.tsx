@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
@@ -13,6 +14,8 @@ import {
   ShieldCheck
 } from "lucide-react";
 import { CycleModalClient } from "./cycle-modal-client";
+import { CycleStatusControl } from "./cycle-status-control";
+import { nextCycleStatus } from "@/modules/practicum-core/workflow-policy";
 
 interface CyclesPageProps {
   params: Promise<{
@@ -25,6 +28,7 @@ export const dynamic = "force-dynamic";
 export default async function CyclesPage(props: CyclesPageProps) {
   const params = await props.params;
   const tenantSlug = params.tenant;
+  await requirePortalAccess(tenantSlug, "admin");
 
   const tenant = await db.organisation.findUnique({
     where: { slug: tenantSlug },
@@ -81,6 +85,7 @@ export default async function CyclesPage(props: CyclesPageProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {cycles.map((cycle) => {
           const isActive = cycle.status === "ACTIVE";
+          const nextStatus = nextCycleStatus(cycle.status);
           return (
             <div
               key={cycle.id}
@@ -163,6 +168,7 @@ export default async function CyclesPage(props: CyclesPageProps) {
                   Matching Desk
                 </Link>
               </div>
+              {nextStatus && <CycleStatusControl tenantSlug={tenantSlug} cycleId={cycle.id} nextStatus={nextStatus} />}
             </div>
           );
         })}

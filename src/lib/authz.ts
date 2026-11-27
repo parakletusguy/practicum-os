@@ -1,8 +1,10 @@
 import "server-only";
 
-import { SystemRole } from "@prisma/client";
+import { Prisma, SystemRole } from "@prisma/client";
+import { cache } from "react";
 import { db } from "@/lib/db";
 import { isDemoMode } from "@/lib/runtime-mode";
+import { fieldSupervisorScope } from "@/lib/record-access";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export class AuthenticationError extends Error {
@@ -31,7 +33,7 @@ type AuthenticatedActor = {
  * The first matching, verified email link is atomic, so a person cannot be
  * silently rebound to a different Auth account.
  */
-export async function requireAuthenticatedActor(): Promise<AuthenticatedActor> {
+export const requireAuthenticatedActor = cache(async (): Promise<AuthenticatedActor> => {
   if (isDemoMode()) {
     throw new AuthenticationError("Demo mode does not provide an authenticated actor.");
   }
@@ -50,8 +52,9 @@ export async function requireAuthenticatedActor(): Promise<AuthenticatedActor> {
   }
 
   const { data: userData, error: userError } = await supabase.auth.getUser();
-  const email = userData.user?.email?.trim().toLowerCase();
-  if (userError || !email) {
+  const user = userData.user;
+  const email = user?.email?.trim().toLowerCase();
+  if (userError || user?.id !== authUserId || !user.email_confirmed_at || !email) {
     throw new AuthenticationError("Your verified account does not have an email address.");
   }
 
@@ -60,14 +63,10 @@ export async function requireAuthenticatedActor(): Promise<AuthenticatedActor> {
     throw new AuthorizationError("Your account has not been provisioned for PracticumOS.");
   }
 
-  const linkResult = await db.person.updateMany({
+  await db.person.updateMany({
     where: { id: existingPerson.id, authUserId: null },
     data: { authUserId },
   });
-
-  if (linkResult.count !== 1) {
-    throw new AuthorizationError("Your account could not be linked safely. Please contact an administrator.");
-  }
 
   person = await db.person.findUnique({ where: { authUserId } });
   if (!person) {
@@ -75,7 +74,7 @@ export async function requireAuthenticatedActor(): Promise<AuthenticatedActor> {
   }
 
   return person;
-}
+});
 
 export async function requireTenantRole(
   tenantSlug: string,
@@ -101,12 +100,9 @@ export async function requireTenantRole(
     select: { id: true },
   });
 
-  const allowsAssignedFieldSupervisor = allowedRoles.includes(SystemRole.FIELD_SUPERVISOR)
+  const allowsAssignedFieldSupervisor = !hasTenantMembership && allowedRoles.includes(SystemRole.FIELD_SUPERVISOR)
     ? await db.placementAllocation.findFirst({
-        where: {
-          fieldSupervisorId: actor.id,
-          cycle: { tenantId: tenant.id },
-        },
+        where: fieldSupervisorScope(actor.id, tenant.id),
         select: { id: true },
       })
     : null;
@@ -116,4 +112,28 @@ export async function requireTenantRole(
   }
 
   return { actor, tenant };
+}
+
+export async function provisionCommunityActor(profile: { email: string; firstName: string; lastName: string; phone?: string }) {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase.auth.getUser();
+  const user = data.user;
+  const email = user?.email?.trim().toLowerCase();
+  if (error || !user?.email_confirmed_at || !email) throw new AuthenticationError();
+  if (email !== profile.email.trim().toLowerCase()) throw new AuthorizationError("Use the email address for your signed-in account.");
+  const existing = await db.person.findUnique({ where: { email } });
+  if (existing) return requireAuthenticatedActor();
+
+  try {
+    return await db.person.create({ data: {
+      authUserId: user.id,
+      email,
+      firstName: profile.firstName.trim(),
+      lastName: profile.lastName.trim(),
+      phone: profile.phone?.trim() || null,
+    } });
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
+    return requireAuthenticatedActor();
+  }
 }

@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import { db } from "@/lib/db";
 import { 
   BookOpen, 
@@ -24,9 +25,7 @@ export default async function GuidePage(props: GuidePageProps) {
   const params = await props.params;
   const tenantSlug = params.tenant;
 
-  const tenant = await db.organisation.findUnique({
-    where: { slug: tenantSlug },
-  });
+  const { tenant } = await requirePortalAccess(tenantSlug, "student");
 
   const activeCycle = await db.practicumCycle.findFirst({
     where: {

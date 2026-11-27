@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { AuthenticationError, AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
+import { allocationRecordScope } from "@/lib/record-access";
+import { DEMO_PERSONAS } from "@/lib/auth-personas";
 import { isDemoMode } from "@/lib/runtime-mode";
 
 // Notification visibility depends on the request URL and authenticated actor.
@@ -21,39 +23,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Tenant not found." }, { status: 404 });
     }
 
-    let actorId: string | null = null;
-    let canViewAllTenantAlerts = false;
-
-    if (!isDemoMode()) {
-      const actor = await requireAuthenticatedActor();
-      actorId = actor.id;
-      const membership = await prisma.orgMembership.findFirst({
-        where: {
-          personId: actor.id,
-          organisationId: tenant.id,
-          status: "ACTIVE",
-          role: { in: ["COORDINATOR", "INSTITUTION_ADMIN"] },
-        },
-        select: { id: true },
-      });
-      canViewAllTenantAlerts = Boolean(membership);
+    const actor = isDemoMode() ? null : await requireAuthenticatedActor();
+    if (!actor && tenantSlug !== DEMO_PERSONAS.admin.tenantSlug) {
+      throw new AuthorizationError();
     }
-
-    const accessFilter = canViewAllTenantAlerts || !actorId
-      ? {}
-      : {
-          OR: [
-            { studentPersonId: actorId },
-            { fieldSupervisorId: actorId },
-            { academicSupervisorId: actorId },
-          ],
-        };
-
     const where = {
-      allocation: {
-        cycle: { tenantId: tenant.id },
-        ...accessFilter,
-      },
+      allocation: actor ? allocationRecordScope(actor.id, tenant.id) : { cycle: { tenantId: tenant.id } },
     };
 
     const [alerts, activeCount] = await prisma.$transaction([

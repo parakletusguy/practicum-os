@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import { db } from "@/lib/db";
-import { AuthenticationError, AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
+import { AuthenticationError, requireAuthenticatedActor } from "@/lib/authz";
+import { DEMO_PERSONAS } from "@/lib/auth-personas";
+import { studentPlacementScope } from "@/lib/record-access";
 import { hasTrustedBrowserOrigin } from "@/lib/request-security";
 import { getSupabasePublicConfig, isDemoMode } from "@/lib/runtime-mode";
 import { screenEvidenceFile } from "@/modules/evidence-vault/file-screening";
@@ -31,6 +33,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Untrusted request origin." }, { status: 403 });
     }
 
+    const actor = isDemoMode() ? null : await requireAuthenticatedActor();
     const formData = await request.formData();
     const file = formData.get("file");
     const allocationId = formData.get("allocationId");
@@ -55,19 +58,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: screeningError }, { status: 400 });
     }
 
-    const allocation = await db.placementAllocation.findUnique({
-      where: { id: allocationId },
-      select: { id: true, studentPersonId: true },
+    const allocation = await db.placementAllocation.findFirst({
+      where: {
+        id: allocationId,
+        status: "ACTIVE",
+        cycle: { status: "ACTIVE" },
+        AND: [actor
+          ? studentPlacementScope(actor.id)
+          : { cycle: { tenant: { slug: DEMO_PERSONAS.student.tenantSlug } }, studentPerson: { email: DEMO_PERSONAS.student.email } }],
+      },
+      select: { id: true },
     });
     if (!allocation) {
       return NextResponse.json({ error: "Placement allocation not found." }, { status: 404 });
-    }
-
-    if (!isDemoMode()) {
-      const actor = await requireAuthenticatedActor();
-      if (allocation.studentPersonId !== actor.id) {
-        throw new AuthorizationError("You may only upload evidence for your own placement.");
-      }
     }
 
     const config = getSupabasePublicConfig();
@@ -102,9 +105,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof AuthenticationError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
-    }
-    if (error instanceof AuthorizationError) {
-      return NextResponse.json({ error: error.message }, { status: 403 });
     }
 
     console.error("Evidence upload handler exception:", error);

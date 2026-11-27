@@ -27,9 +27,10 @@ import { useSidebar } from "@/components/layout/SidebarContext";
 interface TenantSidebarProps {
   tenantSlug: string;
   tenantName: string;
+  canManageAccess: boolean;
 }
 
-export function TenantSidebar({ tenantSlug, tenantName }: TenantSidebarProps) {
+export function TenantSidebar({ tenantSlug, tenantName, canManageAccess }: TenantSidebarProps) {
   const pathname = usePathname();
   const { isOpen, close } = useSidebar();
 
@@ -52,6 +53,11 @@ export function TenantSidebar({ tenantSlug, tenantName }: TenantSidebarProps) {
           href: `/${tenantSlug}/admin/cohort`,
           icon: Users,
         },
+        ...(canManageAccess ? [{
+          name: "Institutional Access",
+          href: `/${tenantSlug}/admin/access`,
+          icon: ShieldCheck,
+        }] : []),
       ],
     },
     {

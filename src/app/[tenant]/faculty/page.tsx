@@ -1,5 +1,5 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import {
   Users,
@@ -20,24 +20,13 @@ export default async function FacultyDashboardPage(
   }
 ) {
   const params = await props.params;
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
+  const { actor, tenant } = await requirePortalAccess(params.tenant, "faculty");
 
-  if (!tenant) {
-    notFound();
-  }
-
-  const faculty = await prisma.person.findFirst({
-    where: {
-      roleMemberships: {
-        some: {
-          role: "ACADEMIC_SUPERVISOR",
-        },
-      },
-    },
+  const faculty = await prisma.person.findUnique({
+    where: { id: actor.id },
     include: {
       academicSupervisedAllocations: {
+        where: { cycle: { tenantId: tenant.id } },
         include: {
           hostOrg: true,
           fieldSupervisor: true,
@@ -264,7 +253,9 @@ export default async function FacultyDashboardPage(
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Link href={`/${params.tenant}/faculty/contracts/${alloc.id}`} className="rounded-lg border px-3 py-1.5 text-sm text-emerald-800">Learning contract</Link>
+                      <Link href={`/${params.tenant}/faculty/reports/${alloc.id}`} className="rounded-lg border px-3 py-1.5 text-sm text-emerald-800">Review submissions</Link>
                       <Link
                         href={`/${params.tenant}/faculty/visits?allocationId=${alloc.id}`}
                         className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold"

@@ -69,6 +69,7 @@ export default function NeedHelpPage() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       <PublicNavbar />
+      <div className="mx-auto mt-3 w-full max-w-5xl px-4"><Link href="/gateways/my-requests" className="text-sm font-semibold text-emerald-800 underline">My care requests</Link></div>
 
       {/* Hero Banner */}
       <section className="bg-gradient-to-b from-rose-950 via-slate-900 to-slate-950 text-white py-12 sm:py-16 px-4 sm:px-6 lg:px-8 border-b border-slate-800">

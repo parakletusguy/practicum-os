@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { requirePortalAccess } from "@/lib/portal-access";
 import { prisma } from "@/lib/db";
 import { ShieldAlert, ShieldCheck, AlertTriangle, Lock } from "lucide-react";
 
@@ -8,13 +8,7 @@ export default async function AdminScopeGuardPage(
   }
 ) {
   const params = await props.params;
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
-
-  if (!tenant) {
-    notFound();
-  }
+  const { tenant } = await requirePortalAccess(params.tenant, "admin");
 
   const cycle = await prisma.practicumCycle.findFirst({
     where: { tenantId: tenant.id },

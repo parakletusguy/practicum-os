@@ -83,7 +83,10 @@ export default function NeedMatcherDeskPage() {
     setDispatchLoading(false);
     if (res.success) {
       setDispatchStatus(res.message || "Match successfully confirmed!");
+      setActiveRequestData((request: any) => request ? { ...request, status: "MATCHED" } : request);
       loadRequests();
+    } else {
+      setDispatchStatus(res.error || "The referral could not be dispatched.");
     }
   };
 
@@ -108,6 +111,7 @@ export default function NeedMatcherDeskPage() {
           </div>
 
           <div className="flex flex-wrap gap-2.5">
+            <Link href="/gateways/cases" className="self-center text-sm font-semibold text-slate-200 underline">Case operations</Link>
             <Link
               href="/gateways/help"
               className="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm"
@@ -232,7 +236,7 @@ export default function NeedMatcherDeskPage() {
                       <Lock className="w-3.5 h-3.5 text-slate-400" /> Confidential Request
                     </span>
                     <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full uppercase ${
-                      activeRequestData.status === "MATCHED" 
+                      activeRequestData.status !== "OPEN"
                         ? "bg-emerald-100 text-emerald-800" 
                         : "bg-blue-100 text-blue-800"
                     }`}>

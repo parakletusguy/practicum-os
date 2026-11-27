@@ -3,8 +3,8 @@
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { SystemRole } from "@prisma/client";
-import { AuthenticationError, AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
+import { AuthenticationError, AuthorizationError, provisionCommunityActor } from "@/lib/authz";
+import { requireCommunityMatcher } from "./community-access";
 import { isDemoMode } from "@/lib/runtime-mode";
 import { 
   NeedCategoryType, 
@@ -12,24 +12,6 @@ import {
   sanitizeTextForPII 
 } from "./types";
 import { computeServiceMatches } from "./matcher";
-
-async function requireCommunityMatcher() {
-  if (isDemoMode()) return null;
-
-  const actor = await requireAuthenticatedActor();
-  const membership = await prisma.orgMembership.findFirst({
-    where: {
-      personId: actor.id,
-      status: "ACTIVE",
-      role: { in: [SystemRole.COORDINATOR, SystemRole.INSTITUTION_ADMIN] },
-    },
-    select: { id: true },
-  });
-  if (!membership) {
-    throw new AuthorizationError("Only an active institution coordinator may access the care-matching desk.");
-  }
-  return actor;
-}
 
 const NeedRequestSchema = z.object({
   firstName: z.string().min(2, "First name is required"),
@@ -62,7 +44,7 @@ export async function submitNeedRequestAction(rawData: z.infer<typeof NeedReques
     // A production caller may create a request only for their verified
     // identity. Demo mode retains the seeded public-form behaviour.
     const person = !isDemoMode()
-      ? await requireAuthenticatedActor()
+      ? await provisionCommunityActor(validated)
       : await prisma.person.upsert({
           where: { email: validated.email.toLowerCase().trim() },
           update: {
@@ -113,7 +95,9 @@ export async function submitNeedRequestAction(rawData: z.infer<typeof NeedReques
 
     revalidatePath("/gateways/help");
     revalidatePath("/gateways/matching");
-    revalidatePath("/unilag/admin/needs");
+    revalidatePath("/gateways/cases");
+    revalidatePath("/gateways/my-requests");
+    revalidatePath("/gateways/provider/referrals");
 
     return {
       success: true,
@@ -152,7 +136,7 @@ export async function registerServiceProviderAction(rawData: z.infer<typeof Serv
     // A provider cannot claim another person's email or self-verify in
     // production. Verification is an institutional approval step.
     const person = !isDemoMode()
-      ? await requireAuthenticatedActor()
+      ? await provisionCommunityActor(validated)
       : await prisma.person.upsert({
           where: { email: validated.email.toLowerCase().trim() },
           update: {
@@ -178,6 +162,7 @@ export async function registerServiceProviderAction(rawData: z.infer<typeof Serv
       update: {
         headline: validated.headline.trim(),
         bio: validated.bio.trim(),
+        verifiedStatus: isDemoMode() ? "VERIFIED" : "PENDING",
         skills: validated.skills,
         practicePassport: {
           yearsExperience: validated.yearsExperience,
@@ -335,30 +320,19 @@ export async function dispatchNeedMatchAction(
     if (!verifiedTargetName) {
       return { success: false, error: "The selected target is not an active, verified match." };
     }
-    const statusUpdate = await prisma.needRequest.updateMany({
-      where: { id: request.id, status: "OPEN" },
-      data: { status: "MATCHED" },
-    });
-    if (statusUpdate.count !== 1) {
-      return { success: false, error: "The care request was changed by another coordinator. Refresh and try again." };
-    }
-
-    // Record formal audit dispatch
-    await prisma.auditLog.create({
-      data: {
+    await prisma.$transaction(async (tx) => {
+      const statusUpdate = await tx.needRequest.updateMany({
+        where: { id: request.id, status: "OPEN" },
+        data: { status: "MATCHED" },
+      });
+      if (statusUpdate.count !== 1) throw new Error("The request changed. Refresh and try again.");
+      await tx.auditLog.create({ data: {
         actorPersonId: actor?.id,
         actionType: "NEED_DISPATCHED_TO_SERVICE",
         resourceType: "NeedRequest",
         resourceId: needRequestId,
-        afterState: {
-          targetId,
-          targetType,
-          targetName: verifiedTargetName,
-          status: "MATCHED",
-          coordinatorNotes: coordinatorNotes || "Dispatched via Semantic Matchmaker",
-          dispatchedAt: new Date().toISOString(),
-        },
-      },
+        afterState: { targetId, targetType, targetName: verifiedTargetName, status: "MATCHED", coordinatorNotes: coordinatorNotes?.trim().slice(0, 2000) || null },
+      } });
     });
 
     revalidatePath("/gateways/matching");

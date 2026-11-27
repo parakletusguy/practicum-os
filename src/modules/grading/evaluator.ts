@@ -1,13 +1,22 @@
 "use server";
 
+import { createHash, randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { AssessmentStage, CycleStatus, EvaluatorType, Prisma, SystemRole } from "@prisma/client";
-import { AuthorizationError, requireAuthenticatedActor, requireTenantRole } from "@/lib/authz";
+import { AuthorizationError, requireTenantRole } from "@/lib/authz";
 import { isDemoMode } from "@/lib/runtime-mode";
-import { calculateLetterGrade, DEFAULT_GRADING_FORMULA, type GradingFormulaConfig } from "./formula";
+import { calculateWeightedGrade, readGradingFormula } from "./formula";
+import { getAssessmentScores } from "./assessment-scores";
+import { hasAuthorizedGradeCorrection, transcriptSeal } from "./transcript";
+import { fieldSupervisorScope } from "@/lib/record-access";
 
 const GRADING_ADMIN_ROLES = [SystemRole.COORDINATOR, SystemRole.INSTITUTION_ADMIN];
+const assessmentInputs = {
+  practiceEvents: true,
+  assessments: { orderBy: [{ submittedAt: "desc" }, { id: "desc" }] },
+} satisfies Prisma.PlacementAllocationInclude;
+
 
 /**
  * Run dynamic formula evaluation for all cohort students in a cycle
@@ -19,14 +28,7 @@ export async function calculateCohortGradesAction(cycleId: string, tenantSlug: s
       include: {
         students: {
           include: {
-            person: true,
-            allocation: {
-              include: {
-                practiceEvents: true,
-                assessments: true,
-                supervisionVisits: true,
-              },
-            },
+            allocation: { include: assessmentInputs },
             grade: true,
           },
         },
@@ -43,93 +45,49 @@ export async function calculateCohortGradesAction(cycleId: string, tenantSlug: s
       return { success: false, error: "Grades can only be calculated while the cycle is in GRADING." };
     }
 
-    const formula = (cycle.gradingFormula as unknown as GradingFormulaConfig) || DEFAULT_GRADING_FORMULA;
+    const formula = readGradingFormula(cycle.gradingFormula);
     const requiredHours = cycle.requiredHours || 400;
 
     let updatedCount = 0;
     let lockedCount = 0;
+    let incompleteCount = 0;
 
     for (const student of cycle.students) {
       if (student.grade?.isApproved) {
         lockedCount++;
         continue;
       }
-      const alloc = student.allocation;
 
-      let logbookHoursScore = 0;
-      let fieldEvalScore = 75; // Default baseline if not yet evaluated
-      let academicEvalScore = 75;
-      let reportsScore = 80;
-
-      if (alloc) {
-        // 1. Logbook verified hours calculation (capped at 100%)
-        const verifiedMinutes = alloc.practiceEvents
-          .filter((e) => e.verificationStatus === "VERIFIED")
-          .reduce((sum, e) => sum + e.verifiedMinutes, 0);
-        const verifiedHours = verifiedMinutes / 60;
-        logbookHoursScore = Math.min(100, (verifiedHours / requiredHours) * 100);
-
-        // 2. Field Supervisor Assessment Score
-        const fieldAssessments = alloc.assessments.filter(
-          (a) => a.evaluatorType === "FIELD_SUPERVISOR"
-        );
-        if (fieldAssessments.length > 0) {
-          // Average if multiple (e.g. Midpoint + Final)
-          const total = fieldAssessments.reduce((s, a) => s + (a.totalScore / a.maxScore) * 100, 0);
-          fieldEvalScore = total / fieldAssessments.length;
-        }
-
-        // 3. Academic Supervisor Assessment Score
-        const academicAssessments = alloc.assessments.filter(
-          (a) => a.evaluatorType === "ACADEMIC_SUPERVISOR"
-        );
-        if (academicAssessments.length > 0) {
-          const total = academicAssessments.reduce((s, a) => s + (a.totalScore / a.maxScore) * 100, 0);
-          academicEvalScore = total / academicAssessments.length;
-        } else if (alloc.supervisionVisits.length > 0) {
-          // Fallback based on latest visit rating
-          const latest = alloc.supervisionVisits[0];
-          if (latest.studentProgressRating === "SATISFACTORY") academicEvalScore = 82;
-          else if (latest.studentProgressRating === "NEEDS_IMPROVEMENT") academicEvalScore = 65;
-          else if (latest.studentProgressRating === "AT_RISK") academicEvalScore = 48;
-        }
+      const scores = getAssessmentScores(student.allocation, requiredHours);
+      const result = calculateWeightedGrade(scores, formula);
+      if (!result.complete) {
+        incompleteCount++;
+        continue;
       }
-
-      // Calculate composite score using weights
-      // Default: Field (0.40) + Academic (0.30) + Logbook (0.20) + Reports (0.10)
-      const compositeScore = Math.round(
-        (fieldEvalScore * 0.40 +
-          academicEvalScore * 0.30 +
-          logbookHoursScore * 0.20 +
-          reportsScore * 0.10) *
-          10
-      ) / 10;
-
-      const letterGrade = calculateLetterGrade(compositeScore, formula.gradeScale);
-
-      await prisma.cohortGrade.upsert({
-        where: { cohortStudentId: student.id },
-        create: {
-          cycleId: cycle.id,
-          cohortStudentId: student.id,
-          logbookHoursScore,
-          fieldEvalScore,
-          academicEvalScore,
-          reportsScore,
-          compositeScore,
-          letterGrade,
-          isApproved: false,
-        },
-        update: {
-          logbookHoursScore,
-          fieldEvalScore,
-          academicEvalScore,
-          reportsScore,
-          compositeScore,
-          letterGrade,
-        },
+      const values = {
+        logbookHoursScore: scores.logbookHours,
+        fieldEvalScore: scores.fieldEval,
+        academicEvalScore: scores.academicEval,
+        reportsScore: scores.reports,
+        compositeScore: result.compositeScore,
+        letterGrade: result.letterGrade,
+      };
+      const saved = await prisma.$transaction(async (tx) => {
+        const changed = await tx.cohortGrade.updateMany({
+          where: { cohortStudentId: student.id, isApproved: false, cycle: { status: CycleStatus.GRADING } },
+          data: values,
+        });
+        if (changed.count === 1) return true;
+        if (student.grade) return false;
+        const currentCycle = await tx.practicumCycle.findUnique({ where: { id: cycle.id }, select: { status: true } });
+        if (currentCycle?.status !== CycleStatus.GRADING) return false;
+        const created = await tx.cohortGrade.createMany({
+          data: [{ cycleId: cycle.id, cohortStudentId: student.id, ...values }],
+          skipDuplicates: true,
+        });
+        return created.count === 1;
       });
-
+      if (!saved) continue;
       updatedCount++;
     }
 
@@ -140,7 +98,7 @@ export async function calculateCohortGradesAction(cycleId: string, tenantSlug: s
         actionType: "COHORT_GRADES_CALCULATED",
         resourceType: "PracticumCycle",
         resourceId: cycle.id,
-        afterState: { updatedCount, lockedCount },
+        afterState: { updatedCount, lockedCount, incompleteCount },
       },
     });
 
@@ -149,7 +107,7 @@ export async function calculateCohortGradesAction(cycleId: string, tenantSlug: s
 
     return {
       success: true,
-      message: `Calculated dynamic composite scores and letter grades for ${updatedCount} students; ${lockedCount} approved grade(s) were left unchanged.`,
+      message: `Calculated ${updatedCount} grades. ${incompleteCount} are incomplete and ${lockedCount} were already approved.`,
       updatedCount,
     };
   } catch (error: any) {
@@ -206,27 +164,35 @@ export async function submitAssessmentEvaluationAction(formData: FormData) {
         cohortStudentId: true,
         fieldSupervisorId: true,
         academicSupervisorId: true,
+        studentPersonId: true,
         cycle: { select: { status: true } },
       },
     });
     if (!allocation) return { success: false, error: "Placement allocation not found for this institution." };
-    if (allocation.cycle.status !== CycleStatus.ASSESSMENT && allocation.cycle.status !== CycleStatus.GRADING) {
-      return { success: false, error: "Assessments may only be submitted during ASSESSMENT or GRADING." };
-    }
     const existingGrade = await prisma.cohortGrade.findUnique({ where: { cohortStudentId: allocation.cohortStudentId } });
+    const correcting = allocation.cycle.status === CycleStatus.GRADING && await hasAuthorizedGradeCorrection(existingGrade);
+    if (!correcting && allocation.cycle.status !== CycleStatus.ASSESSMENT && !(allocation.cycle.status === CycleStatus.ACTIVE && stage === "MIDPOINT")) {
+      return { success: false, error: "Midpoint rubrics open during fieldwork. Final rubrics open during assessment." };
+    }
     if (existingGrade?.isApproved) {
       return { success: false, error: "This student's grade has already been approved and cannot be changed." };
     }
     let actorId = evaluatorPersonId;
     if (!isDemoMode()) {
-      const actor = await requireAuthenticatedActor();
+      const role = evaluatorType === "FIELD_SUPERVISOR" ? SystemRole.FIELD_SUPERVISOR
+        : evaluatorType === "ACADEMIC_SUPERVISOR" ? SystemRole.ACADEMIC_SUPERVISOR : SystemRole.STUDENT;
+      const { actor, tenant } = await requireTenantRole(tenantSlug, [role]);
       actorId = actor.id;
       const assignedSupervisor = evaluatorType === EvaluatorType.FIELD_SUPERVISOR
         ? allocation.fieldSupervisorId
-        : allocation.academicSupervisorId;
+        : evaluatorType === EvaluatorType.ACADEMIC_SUPERVISOR ? allocation.academicSupervisorId : allocation.studentPersonId;
       if (actor.id !== evaluatorPersonId || actor.id !== assignedSupervisor) {
         throw new AuthorizationError("Only the assigned supervisor may submit this assessment.");
       }
+      if (role === SystemRole.FIELD_SUPERVISOR && !await prisma.placementAllocation.findFirst({
+        where: { id: allocationId, ...fieldSupervisorScope(actor.id, tenant.id) },
+        select: { id: true },
+      })) throw new AuthorizationError();
     }
 
     const submission = await prisma.assessmentSubmission.create({
@@ -274,73 +240,93 @@ export async function submitAssessmentEvaluationAction(formData: FormData) {
  * Lock and Approve Cohort Grades (Academic Staff / Head of Department)
  */
 export async function approveCohortGradeAction(formData: FormData) {
+  const gradeId = String(formData.get("gradeId") || "");
+  const tenantSlug = String(formData.get("tenantSlug") || "");
+  const remarks = String(formData.get("moderationRemarks") || "").trim();
+  if (!gradeId || !remarks || remarks.length > 2000) return { success: false, error: "Enter moderation remarks before approving." };
+
   try {
-    const gradeId = formData.get("gradeId") as string;
-    const approverPersonId = formData.get("approverPersonId") as string;
-    const moderationRemarks = formData.get("moderationRemarks") as string;
-    const tenantSlug = formData.get("tenantSlug") as string;
-
-    if (!gradeId) {
-      return { success: false, error: "Grade ID is required." };
-    }
-
-    const existingGrade = await prisma.cohortGrade.findFirst({
-      where: { id: gradeId, cycle: { tenant: { slug: tenantSlug } } },
-      include: { cycle: { select: { tenantId: true, status: true } }, cohortStudent: { include: { person: true } } },
-    });
-    if (!existingGrade) return { success: false, error: "Grade not found for this institution." };
-    if (existingGrade.isApproved) return { success: false, error: "This grade is already approved and locked." };
-    if (existingGrade.cycle.status !== CycleStatus.GRADING) {
-      return { success: false, error: "Grades can only be approved while the cycle is in GRADING." };
-    }
-    let actorId = approverPersonId;
-    if (!isDemoMode()) {
-      const authorization = await requireTenantRole(tenantSlug, GRADING_ADMIN_ROLES);
-      actorId = authorization.actor.id;
-      if (approverPersonId && approverPersonId !== actorId) {
-        throw new AuthorizationError("Grade approval must be recorded under the signed-in approver.");
+    const { actor, tenant } = await requireTenantRole(tenantSlug, GRADING_ADMIN_ROLES);
+    const approval = await prisma.$transaction(async (tx) => {
+      const grade = await tx.cohortGrade.findFirst({
+        where: { id: gradeId, cycle: { tenantId: tenant.id, status: CycleStatus.GRADING }, isApproved: false },
+        include: {
+          cycle: { select: { requiredHours: true, gradingFormula: true, name: true, academicYear: true } },
+          cohortStudent: { select: {
+            matricNumber: true, person: { select: { firstName: true, lastName: true } },
+            allocation: { include: assessmentInputs },
+          } },
+        },
+      });
+      if (!grade) throw new Error("Only a draft grade in the grading stage can be approved.");
+      const scores = getAssessmentScores(grade.cohortStudent.allocation, grade.cycle.requiredHours);
+      const computed = calculateWeightedGrade(scores, readGradingFormula(grade.cycle.gradingFormula));
+      if (!computed.complete || computed.compositeScore !== grade.compositeScore || computed.letterGrade !== grade.letterGrade ||
+        scores.fieldEval !== grade.fieldEvalScore || scores.academicEval !== grade.academicEvalScore ||
+        scores.logbookHours !== grade.logbookHoursScore || scores.reports !== grade.reportsScore) {
+        throw new Error("The grade is incomplete or out of date. Recalculate it before approval.");
       }
-    }
-
-    const grade = await prisma.cohortGrade.update({
-      where: { id: existingGrade.id },
-      data: {
-        isApproved: true,
-        approvedByPersonId: actorId || null,
-        approvedAt: new Date(),
-        moderationRemarks: moderationRemarks || "Approved by Department Board of Examiners.",
-      },
-      include: { cohortStudent: { include: { person: true } } },
-    });
-
-    // Immutable Audit Entry
-    await prisma.auditLog.create({
-      data: {
-        tenantId: existingGrade.cycle.tenantId,
-        actorPersonId: actorId || null,
-        actionType: "GRADE_MODERATED_AND_APPROVED",
-        resourceType: "CohortGrade",
-        resourceId: gradeId,
-        beforeState: { isApproved: false, compositeScore: existingGrade.compositeScore, letterGrade: existingGrade.letterGrade },
-        afterState: {
+      const priorTranscript = await tx.auditLog.findFirst({
+        where: { tenantId: tenant.id, resourceType: "CohortGrade", resourceId: grade.id, actionType: "TRANSCRIPT_ISSUED" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: { id: true },
+      });
+      const version = createHash("sha256").update(JSON.stringify([grade.id, priorTranscript?.id, scores, grade.compositeScore, grade.letterGrade])).digest("hex");
+      const previous = await tx.auditLog.findMany({
+        where: {
+          tenantId: tenant.id, resourceType: "CohortGrade", resourceId: grade.id,
+          actionType: "GRADE_MODERATION_RECORDED", afterState: { path: ["version"], equals: version },
+        },
+        select: { actorPersonId: true },
+      });
+      if (previous.some((record) => record.actorPersonId === actor.id)) {
+        throw new Error("You already approved this grade. A different authorized person must give the second approval.");
+      }
+      const approvers = previous.flatMap(({ actorPersonId }) => actorPersonId ? [actorPersonId] : []);
+      const precedingApproval = approvers.length > 0 && await tx.orgMembership.findFirst({
+        where: { organisationId: tenant.id, role: { in: GRADING_ADMIN_ROLES }, status: "ACTIVE", personId: { in: approvers } },
+        select: { id: true },
+      });
+      const locked = Boolean(precedingApproval);
+      const changed = await tx.cohortGrade.updateMany({
+        where: { id: grade.id, updatedAt: grade.updatedAt, isApproved: false, cycle: { status: CycleStatus.GRADING } },
+        data: locked
+          ? { isApproved: true, approvedByPersonId: actor.id, approvedAt: new Date(), moderationRemarks: remarks }
+          : { updatedAt: new Date() },
+      });
+      if (changed.count !== 1) throw new Error("This grade changed. Refresh it before approving.");
+      await tx.auditLog.create({
+        data: {
+          tenantId: tenant.id, actorPersonId: actor.id, resourceType: "CohortGrade", resourceId: grade.id,
+          actionType: locked ? "GRADE_MODERATED_AND_APPROVED" : "GRADE_MODERATION_RECORDED",
+          afterState: { version, compositeScore: grade.compositeScore, letterGrade: grade.letterGrade, remarks, isApproved: locked },
+        },
+      });
+      if (locked) {
+        const reference = randomUUID();
+        const snapshot = {
+          studentName: `${grade.cohortStudent.person.firstName} ${grade.cohortStudent.person.lastName}`,
+          matricNumber: grade.cohortStudent.matricNumber,
+          institution: tenant.name,
+          cycle: grade.cycle.name,
+          academicYear: grade.cycle.academicYear,
           compositeScore: grade.compositeScore,
           letterGrade: grade.letterGrade,
-          isApproved: true,
-          approvedAt: grade.approvedAt,
-        },
-      },
-    });
-
-    revalidatePath(`/${tenantSlug}/admin/grading`);
-    revalidatePath(`/${tenantSlug}/student`);
-
-    return {
-      success: true,
-      message: `Final grade ${grade.letterGrade} (${grade.compositeScore}%) locked and approved for ${grade.cohortStudent.person.firstName} ${grade.cohortStudent.person.lastName}.`,
-      grade,
-    };
-  } catch (error: any) {
-    console.error("approveCohortGradeAction error:", error);
-    return { success: false, error: error.message || "Failed to approve grade." };
+          issuedAt: new Date().toISOString(),
+        };
+        await tx.auditLog.create({
+          data: {
+            id: reference, tenantId: tenant.id, actorPersonId: actor.id, actionType: "TRANSCRIPT_ISSUED",
+            resourceType: "CohortGrade", resourceId: grade.id,
+            afterState: { snapshot, seal: transcriptSeal(reference, snapshot) },
+          },
+        });
+      }
+      return locked;
+    }, { isolationLevel: "Serializable" });
+    revalidatePath("/" + tenantSlug, "layout");
+    return { success: true, locked: approval, message: approval ? "Grade approved and locked." : "First approval recorded. A second authorized person can now approve." };
+  } catch (error) {
+    return { success: false, error: error instanceof Error && !("code" in error) ? error.message : "Approval could not be saved. Refresh and try again." };
   }
 }

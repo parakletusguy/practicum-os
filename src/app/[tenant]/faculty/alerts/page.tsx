@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { requirePortalAccess } from "@/lib/portal-access";
 import { prisma } from "@/lib/db";
 import { AlertTriageClient } from "./alert-triage-client";
 import { AlertTriangle, ShieldAlert } from "lucide-react";
@@ -9,13 +9,7 @@ export default async function FacultyAlertsPage(
   }
 ) {
   const params = await props.params;
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
-
-  if (!tenant) {
-    notFound();
-  }
+  const { actor, tenant } = await requirePortalAccess(params.tenant, "faculty");
 
   // Get active cycle
   const cycle = await prisma.practicumCycle.findFirst({
@@ -23,16 +17,11 @@ export default async function FacultyAlertsPage(
     orderBy: { createdAt: "desc" },
   });
 
-  const faculty = await prisma.person.findFirst({
-    where: {
-      roleMemberships: {
-        some: {
-          role: "ACADEMIC_SUPERVISOR",
-        },
-      },
-    },
+  const faculty = await prisma.person.findUnique({
+    where: { id: actor.id },
     include: {
       academicSupervisedAllocations: {
+        where: { cycle: { tenantId: tenant.id } },
         include: {
           hostOrg: true,
           fieldSupervisor: true,

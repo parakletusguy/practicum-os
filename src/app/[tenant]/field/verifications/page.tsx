@@ -1,4 +1,5 @@
-import { notFound } from "next/navigation";
+import { fieldSupervisorScope } from "@/lib/record-access";
+import { requirePortalAccess } from "@/lib/portal-access";
 import { prisma } from "@/lib/db";
 import { VerificationTableClient } from "./verification-table-client";
 import { CheckCircle2, ShieldCheck } from "lucide-react";
@@ -9,25 +10,14 @@ export default async function FieldVerificationsPage(
   }
 ) {
   const params = await props.params;
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
-
-  if (!tenant) {
-    notFound();
-  }
+  const { actor, tenant } = await requirePortalAccess(params.tenant, "field");
 
   // Find the field supervisor and their allocations
-  const fieldSupervisor = await prisma.person.findFirst({
-    where: {
-      roleMemberships: {
-        some: {
-          role: "FIELD_SUPERVISOR",
-        },
-      },
-    },
+  const fieldSupervisor = await prisma.person.findUnique({
+    where: { id: actor.id },
     include: {
       fieldSupervisedAllocations: {
+        where: fieldSupervisorScope(actor.id, tenant.id),
         include: {
           cohortStudent: {
             include: { person: true },

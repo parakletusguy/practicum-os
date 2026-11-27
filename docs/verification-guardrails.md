@@ -21,6 +21,17 @@ This project does not currently include a generative-AI feature. “Hallucinatio
 | Automated alert | Scheduled-job execution record plus notification delivery record |
 | Workflow completion | End-to-end browser test that uses the same server actions as the UI |
 
+## Portal access browser check
+
+Run `node scripts/verify_portal_access.mjs` against a local or staging instance with demo mode disabled. Set `PRACTICUM_BROWSER_BASE_URL`. The runner uses Playwright, either installed locally or supplied as a module URL through `PRACTICUM_PLAYWRIGHT_MODULE`. Set `PRACTICUM_BROWSER_CHANNEL=chrome` to use an installed Chrome.
+
+For authenticated checks, set `PRACTICUM_BROWSER_FIXTURES` to a local JSON file with two test tenant slugs in `tenant` and `otherTenant`, plus a `sessions` object with `student`, `field`, and `faculty` Playwright storage-state paths. Use synthetic records and provide these fixture keys:
+
+- `studentLogbookMarker`, `otherStudentLogbookMarker`, `fieldAssignedMarker`, `fieldUnassignedMarker`, `facultyAssignedMarker`, and `facultyUnassignedMarker` as text unique to each fixture.
+- `unassignedTraineeId`, `ownEventId`, `sameTenantOtherEventId`, and `otherTenantEventId` as synthetic record IDs. The three events should each have private evidence.
+
+Keep the storage states outside version control since they contain test session credentials. Prepare the second tenant so it has records but grants no membership to the test actors in `sessions`.
+
 ## Release checklist
 
 - [ ] Claims reviewed against implementation and tests

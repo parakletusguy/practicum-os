@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { requirePortalAccess } from "@/lib/portal-access";
 import { prisma } from "@/lib/db";
 import {
   History,
@@ -18,13 +18,7 @@ export default async function AuditLedgerPage(
   }
 ) {
   const params = await props.params;
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
-
-  if (!tenant) {
-    notFound();
-  }
+  const { tenant } = await requirePortalAccess(params.tenant, "admin");
 
   const auditLogs = await prisma.auditLog.findMany({
     where: { tenantId: tenant.id },

@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
@@ -13,7 +14,6 @@ import {
   Clock,
   ArrowRight
 } from "lucide-react";
-import { LearningContractClient } from "./learning-contract-client";
 
 interface StudentPlacementPageProps {
   params: Promise<{
@@ -27,10 +27,14 @@ export default async function StudentPlacementPage(props: StudentPlacementPagePr
   const params = await props.params;
   const tenantSlug = params.tenant;
 
-  const student = await db.person.findFirst({
-    where: { email: "c.eze@student.unilag.edu.ng" },
+  const { actor, tenant } = await requirePortalAccess(tenantSlug, "student");
+  const student = await db.person.findUnique({
+    where: { id: actor.id },
     include: {
       cohortEnrollments: {
+        where: { cycle: { tenantId: tenant.id } },
+        orderBy: { cycle: { createdAt: "desc" } },
+        take: 1,
         include: {
           cycle: true,
           allocation: {
@@ -58,14 +62,6 @@ export default async function StudentPlacementPage(props: StudentPlacementPagePr
       </div>
     );
   }
-
-  // Check if student already signed learning contract in audit log
-  const contractLog = await db.auditLog.findFirst({
-    where: {
-      resourceId: allocation.id,
-      actionType: "LEARNING_CONTRACT_SIGNED",
-    },
-  });
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
@@ -204,38 +200,10 @@ export default async function StudentPlacementPage(props: StudentPlacementPagePr
           </div>
         </div>
 
-        <div className="mt-6 space-y-3 text-xs text-slate-700 leading-relaxed">
-          <div className="flex items-start gap-2.5 p-3 rounded-lg bg-slate-50 border border-slate-100">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-            <span>
-              <strong>Professional Confidentiality:</strong> I solemnly pledge never to disclose identifiable client names, residential addresses, national identity details, or identifiable photographs in my logbook or case notes.
-            </span>
-          </div>
-
-          <div className="flex items-start gap-2.5 p-3 rounded-lg bg-slate-50 border border-slate-100">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-            <span>
-              <strong>ScopeGuard Compliance:</strong> I agree strictly to undertake high-risk clinical tasks (such as unaccompanied home visits, child removal proceedings, or psychiatric crisis interventions) solely under the direct on-site observation of my certified Field Supervisor.
-            </span>
-          </div>
-
-          <div className="flex items-start gap-2.5 p-3 rounded-lg bg-slate-50 border border-slate-100">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-            <span>
-              <strong>Practice Integrity:</strong> I commit to logging only authentic, verified hours and completing the required 400 practice hours with honest critical reflection on my evolving competency.
-            </span>
-          </div>
-        </div>
-
-        {/* Digital Signature Component */}
-        <div className="mt-6 pt-6 border-t border-slate-100">
-          <LearningContractClient
-            tenantSlug={tenantSlug}
-            allocationId={allocation.id}
-            isAlreadySigned={!!contractLog}
-            studentFullName={`${student?.firstName} ${student?.lastName}`}
-          />
-        </div>
+        <Link href={`/${tenantSlug}/student/contracts/${allocation.id}`} className="mt-4 inline-flex rounded-lg border px-4 py-2 text-sm font-semibold text-emerald-800">
+          Review learning contract
+        </Link>
+        <Link href={`/${tenantSlug}/student/reports/${allocation.id}`} className="mt-4 ml-2 inline-flex rounded-lg border px-4 py-2 text-sm font-semibold text-emerald-800">Reflection and portfolio</Link>
       </div>
     </div>
   );

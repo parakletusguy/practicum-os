@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { requirePortalAccess } from "@/lib/portal-access";
 import { prisma } from "@/lib/db";
 import { RubricFormClient } from "@/app/[tenant]/field/evaluations/rubric-form-client";
 import { Award, GraduationCap } from "lucide-react";
@@ -9,24 +9,13 @@ export default async function FacultyEvaluationsPage(
   }
 ) {
   const params = await props.params;
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
+  const { actor, tenant } = await requirePortalAccess(params.tenant, "faculty");
 
-  if (!tenant) {
-    notFound();
-  }
-
-  const faculty = await prisma.person.findFirst({
-    where: {
-      roleMemberships: {
-        some: {
-          role: "ACADEMIC_SUPERVISOR",
-        },
-      },
-    },
+  const faculty = await prisma.person.findUnique({
+    where: { id: actor.id },
     include: {
       academicSupervisedAllocations: {
+        where: { cycle: { tenantId: tenant.id } },
         include: {
           cohortStudent: {
             include: { person: true },

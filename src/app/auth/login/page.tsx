@@ -70,7 +70,7 @@ export default function LoginPage() {
       const nextPath =
         requestedPath?.startsWith("/") && !requestedPath.startsWith("//")
           ? requestedPath
-          : "/";
+          : "/auth/workspaces";
       const redirectUrl = new URL("/auth/callback", window.location.origin);
       redirectUrl.searchParams.set("next", nextPath);
 

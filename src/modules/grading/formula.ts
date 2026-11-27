@@ -32,3 +32,38 @@ export function calculateLetterGrade(
   }
   return score >= 70 ? "A" : score >= 60 ? "B" : score >= 50 ? "C" : score >= 45 ? "D" : "F";
 }
+
+type GradeComponent = GradingFormulaConfig["components"][number]["key"];
+export type GradeScores = Record<GradeComponent, number | null>;
+
+export function readGradingFormula(value: unknown): GradingFormulaConfig {
+  if (!value || typeof value !== "object") return DEFAULT_GRADING_FORMULA;
+  const stored = value as Record<string, unknown>;
+  const scale = stored.gradeScale;
+  const gradeScale = scale && typeof scale === "object" && !Array.isArray(scale) &&
+    Object.keys(scale).length > 0 && Object.values(scale).every((range) =>
+      Array.isArray(range) && range.length === 2 && range.every(Number.isFinite) && range[0] <= range[1],
+    ) ? scale as GradingFormulaConfig["gradeScale"] : DEFAULT_GRADING_FORMULA.gradeScale;
+  const legacy = [stored.fieldEvalWeight, stored.academicEvalWeight, stored.logbookHoursWeight, stored.reportsWeight];
+  const entries = Array.isArray(stored.components) ? stored.components : null;
+  const components = DEFAULT_GRADING_FORMULA.components.map((component, index) => {
+    const entry = entries?.find((item) => item?.key === component.key) ?? entries?.[index];
+    const weight = String(entry?.key || component.key) === component.key ? (entry?.weight ?? legacy[index]) : undefined;
+    return { ...component, weight: typeof weight === "number" ? weight : component.weight };
+  });
+  const weightTotal = components.reduce((sum, component) => sum + component.weight, 0);
+  if (components.some(({ weight }) => !Number.isFinite(weight) || weight < 0) ||
+      (Math.abs(weightTotal - 1) > 0.00001 && Math.abs(weightTotal - 100) > 0.00001)) {
+    throw new Error("Grading weights must total 100%.");
+  }
+  return { components: components.map(({ weight, ...component }) => ({ ...component, weight: weight / weightTotal })), gradeScale };
+}
+
+export function calculateWeightedGrade(scores: GradeScores, formula: GradingFormulaConfig) {
+  const missing = formula.components.filter(({ key, weight }) => weight > 0 && scores[key] === null).map(({ key }) => key);
+  if (missing.length) return { complete: false as const, missing };
+  const compositeScore = Math.round(formula.components.reduce(
+    (total, { key, weight }) => total + (scores[key] ?? 0) * weight, 0,
+  ) * 10) / 10;
+  return { complete: true as const, compositeScore, letterGrade: calculateLetterGrade(compositeScore, formula.gradeScale) };
+}

@@ -1,24 +1,34 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { Plus, X, Loader2, ShieldAlert, CheckCircle2, AlertTriangle, FileText, UploadCloud, Paperclip, Trash2 } from "lucide-react";
 import { createPracticeEventAction } from "@/modules/logbook/actions";
 import { PracticeScopeLevel } from "@prisma/client";
 import { evaluateScopeGuard } from "@/modules/scope-guard/policy";
+import { getQueuedOfflineEvents, removeOfflineEvent, saveOfflineEvent, type OfflinePracticeEvent } from "@/lib/offline-sync";
+import { sanitizeTextForPII } from "@/modules/needs-matching/types";
 
 interface LogbookModalClientProps {
   tenantSlug: string;
   allocationId: string;
+  queueScope: string;
+  canSubmit: boolean;
 }
 
 export function LogbookModalClient({
   tenantSlug,
   allocationId,
+  queueScope,
+  canSubmit,
 }: LogbookModalClientProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [scopeNotice, setScopeNotice] = useState<string | null>(null);
+  const [queue, setQueue] = useState<OfflinePracticeEvent[]>([]);
+  const [queueMessage, setQueueMessage] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const syncing = useRef(false);
 
   // Evidence upload state
   const [uploading, setUploading] = useState(false);
@@ -42,6 +52,33 @@ export function LogbookModalClient({
     competenciesTagged: ["Ethical & Professional Conduct"],
     scopeLevel: "CO_PRACTICE" as PracticeScopeLevel,
   });
+
+  const syncQueue = useCallback(async (includeRejected = false) => {
+    if (syncing.current) return;
+    syncing.current = true;
+    try {
+      const entries = await getQueuedOfflineEvents(queueScope);
+      for (const entry of entries) {
+        if (!canSubmit || !navigator.onLine || (entry.error && !includeRejected)) continue;
+        const result = await createPracticeEventAction(entry.payload);
+        if (result.success) await removeOfflineEvent(entry.id);
+        else await saveOfflineEvent({ ...entry, error: result.error || "The entry could not be submitted." });
+      }
+      setQueue(await getQueuedOfflineEvents(queueScope));
+    } catch {
+      setQueueMessage("Queued entries could not be synchronized. Try again when connected.");
+      setQueue(await getQueuedOfflineEvents(queueScope).catch(() => []));
+    } finally {
+      syncing.current = false;
+    }
+  }, [queueScope, canSubmit]);
+
+  useEffect(() => {
+    void syncQueue();
+    const onReconnect = () => { void syncQueue(); };
+    window.addEventListener("online", onReconnect);
+    return () => window.removeEventListener("online", onReconnect);
+  }, [syncQueue]);
 
   const availableCompetencies = [
     "Ethical & Professional Conduct",
@@ -122,14 +159,50 @@ export function LogbookModalClient({
     setError(null);
 
     startTransition(async () => {
-      const res = await createPracticeEventAction({
+      const submissionId = editing || crypto.randomUUID();
+      const payload = {
         tenantSlug,
         allocationId,
         ...formData,
+        submissionId,
         evidenceUrl: uploadedEvidence?.storagePath,
-      });
+      };
+      const saveForReconnect = async () => {
+        if (uploadedEvidence) {
+          setError("Reconnect to submit an attachment. Text entries can be saved offline.");
+          return;
+        }
+        if (sanitizeTextForPII([formData.activityTitle, formData.activityDescription, formData.criticalReflection].join(" ")).redactedCount) {
+          setError("Remove personal contact or identification details before saving offline.");
+          return;
+        }
+        try {
+          await saveOfflineEvent({ id: submissionId, scope: queueScope, payload });
+          setQueue(await getQueuedOfflineEvents(queueScope));
+          setQueueMessage("Saved on this device. The entry will sync when you reconnect.");
+          setEditing(null);
+          setIsOpen(false);
+        } catch {
+          setError("This browser could not save the entry offline. Keep it open and try again.");
+        }
+      };
+      if (!navigator.onLine) {
+        await saveForReconnect();
+        return;
+      }
+
+      const res = await createPracticeEventAction(payload).catch(() => null);
+      if (res === null) {
+        await saveForReconnect();
+        return;
+      }
 
       if (res.success) {
+        if (editing) {
+          await removeOfflineEvent(editing);
+          setQueue(await getQueuedOfflineEvents(queueScope));
+        }
+        setEditing(null);
         setIsOpen(false);
         setUploadedEvidence(null);
       } else {
@@ -140,13 +213,35 @@ export function LogbookModalClient({
 
   return (
     <>
-      <button
-        onClick={() => setIsOpen(true)}
+      {canSubmit && <button
+        onClick={() => { setEditing(null); setIsOpen(true); }}
         className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-colors shadow-sm cursor-pointer"
       >
         <Plus className="w-4 h-4" />
         Log Activity & Hours
-      </button>
+      </button>}
+
+      {(queue.length > 0 || queueMessage) && (
+        <div className="max-w-sm space-y-2 rounded-lg border bg-white p-3 text-sm">
+          {queueMessage && <p role="status">{queueMessage}</p>}
+          {!canSubmit && queue.length > 0 && <p>The cycle is closed for new logbook submissions.</p>}
+          {queue.map(({ id, payload, error }) => (
+            <div key={id} className="space-y-1">
+              <p>{payload.activityTitle || "Queued activity"} · {error || "Waiting to sync"}</p>
+              {canSubmit && <button type="button" className="text-emerald-800 underline" onClick={() => {
+                setEditing(id);
+                setError(null);
+                setFormData({
+                  ...payload,
+                  clientRef: payload.clientRef || "",
+                });
+                setIsOpen(true);
+              }}>Edit entry</button>}
+            </div>
+          ))}
+          {canSubmit && queue.length > 0 && <button type="button" className="font-semibold text-emerald-800 underline" onClick={() => { void syncQueue(true); }}>Sync queued entries</button>}
+        </div>
+      )}
 
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">

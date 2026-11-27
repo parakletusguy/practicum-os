@@ -5,7 +5,8 @@ import { getSupabasePublicConfig, isDemoMode } from "@/lib/runtime-mode";
 function isProtectedWorkspace(pathname: string) {
   return (
     /^\/[^/]+\/(admin|student|field|faculty)(?:\/|$)/.test(pathname) ||
-    ["/gateways/help", "/gateways/provider", "/gateways/matching"].includes(pathname)
+    pathname === "/auth/workspaces" ||
+    ["/gateways/help", "/gateways/provider", "/gateways/matching", "/gateways/my-requests", "/gateways/provider/referrals", "/gateways/cases"].includes(pathname)
   );
 }
 

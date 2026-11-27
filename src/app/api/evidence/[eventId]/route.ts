@@ -1,16 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { db } from "@/lib/db";
-import { AuthenticationError, AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
+import { AuthenticationError, requireAuthenticatedActor } from "@/lib/authz";
+import { DEMO_PERSONAS } from "@/lib/auth-personas";
+import { allocationRecordScope } from "@/lib/record-access";
 import { getSupabasePublicConfig, isDemoMode } from "@/lib/runtime-mode";
 
 export async function GET(request: NextRequest, props: { params: Promise<{ eventId: string }> }) {
   const params = await props.params;
   try {
+    const actor = isDemoMode() ? null : await requireAuthenticatedActor();
     const event = await db.practiceEvent.findUnique({
-      where: { id: params.eventId },
-      include: {
-        allocation: { include: { cycle: true } },
+      where: {
+        id: params.eventId,
+        allocation: actor
+          ? allocationRecordScope(actor.id)
+          : { cycle: { tenant: { slug: DEMO_PERSONAS.admin.tenantSlug } } },
+      },
+      select: {
+        evidenceUrl: true,
+        allocationId: true,
       },
     });
     if (!event?.evidenceUrl) {
@@ -21,28 +30,6 @@ export async function GET(request: NextRequest, props: { params: Promise<{ event
         { error: "This legacy evidence reference must be migrated before it can be accessed." },
         { status: 410 }
       );
-    }
-
-    if (!isDemoMode()) {
-      const actor = await requireAuthenticatedActor();
-      const directlyAssigned = [
-        event.allocation.studentPersonId,
-        event.allocation.fieldSupervisorId,
-        event.allocation.academicSupervisorId,
-      ].includes(actor.id);
-      const coordinatorMembership = await db.orgMembership.findFirst({
-        where: {
-          personId: actor.id,
-          organisationId: event.allocation.cycle.tenantId,
-          status: "ACTIVE",
-          role: { in: ["COORDINATOR", "INSTITUTION_ADMIN"] },
-        },
-        select: { id: true },
-      });
-
-      if (!directlyAssigned && !coordinatorMembership) {
-        throw new AuthorizationError("You may not access this evidence.");
-      }
     }
 
     const config = getSupabasePublicConfig();
@@ -68,9 +55,6 @@ export async function GET(request: NextRequest, props: { params: Promise<{ event
   } catch (error) {
     if (error instanceof AuthenticationError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
-    }
-    if (error instanceof AuthorizationError) {
-      return NextResponse.json({ error: error.message }, { status: 403 });
     }
 
     console.error("Evidence download error:", error);

@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { formatDate, formatMinutesToHours } from "@/lib/utils";
@@ -24,10 +25,14 @@ export default async function StudentDnaPage(props: StudentDnaPageProps) {
   const params = await props.params;
   const tenantSlug = params.tenant;
 
-  const student = await db.person.findFirst({
-    where: { email: "c.eze@student.unilag.edu.ng" },
+  const { actor, tenant } = await requirePortalAccess(tenantSlug, "student");
+  const student = await db.person.findUnique({
+    where: { id: actor.id },
     include: {
       cohortEnrollments: {
+        where: { cycle: { tenantId: tenant.id } },
+        orderBy: { cycle: { createdAt: "desc" } },
+        take: 1,
         include: {
           cycle: true,
           allocation: {

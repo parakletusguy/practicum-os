@@ -1,66 +1,31 @@
-// PracticumOS Offline-First Service Worker
-const CACHE_NAME = "practicum-os-v1";
-const STATIC_ASSETS = [
-  "/",
-  "/manifest.json",
-  "/gateways/help",
-  "/gateways/provider",
-  "/gateways/matching",
-];
+const CACHE_NAME = "practicum-os-static-v2";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS).catch((err) => {
-        console.warn("Service Worker pre-caching non-fatal warning:", err);
-      });
-    })
-  );
-  self.skipWaiting();
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-      );
-    })
+    caches.delete("practicum-os-v1").then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
-  // Only intercept GET requests
-  if (event.request.method !== "GET") return;
+  const request = event.request;
+  const url = new URL(request.url);
+  if (
+    request.method !== "GET" ||
+    url.origin !== self.location.origin ||
+    !url.pathname.startsWith("/_next/static/")
+  ) return;
 
-  const url = new URL(event.request.url);
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    const cached = await cache.match(request);
+    if (cached) return cached;
 
-  // Skip API, Next data requests, and extension schemes
-  if (url.pathname.startsWith("/_next/data") || url.pathname.startsWith("/api/")) {
-    return;
-  }
-
-  event.respondWith(
-    fetch(event.request)
-      .then((networkResponse) => {
-        // Cache successful GET responses for static/page assets
-        if (networkResponse && networkResponse.status === 200) {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache).catch(() => {});
-          });
-        }
-        return networkResponse;
-      })
-      .catch(async () => {
-        // Fallback to cache when offline
-        const cachedResponse = await caches.match(event.request);
-        if (cachedResponse) {
-          return cachedResponse;
-        }
-        // Fallback to root or offline shell
-        return caches.match("/");
-      })
-  );
+    const response = await fetch(request);
+    if (response.ok) await cache.put(request, response.clone()).catch(() => {});
+    return response;
+  })());
 });

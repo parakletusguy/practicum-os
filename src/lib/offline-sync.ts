@@ -1,124 +1,57 @@
-// Client-Side Offline Queue & IndexedDB Sync Engine
-// Engineered for rural clinics & low-connectivity field placements
+import type { createPracticeEventAction } from "@/modules/logbook/actions";
 
 const DB_NAME = "PracticumOS_OfflineStore";
-const DB_VERSION = 1;
-const STORE_NAME = "queued_events";
+const STORE_NAME = "scoped_practice_events";
 
-export interface OfflinePracticeEvent {
-  id?: number;
-  allocationId: string;
-  eventDate: string;
-  startTime: string;
-  endTime: string;
-  category: string;
-  clientRef?: string;
-  activityTitle: string;
-  activityDescription: string;
-  criticalReflection: string;
-  competenciesTagged: string[];
-  scopeLevel: "INDEPENDENT" | "CO_PRACTICE" | "DIRECT_SUPERVISION";
-  evidenceUrl?: string;
-  queuedAt: string;
-}
+type Entry = Parameters<typeof createPracticeEventAction>[0];
+export type OfflinePracticeEvent = {
+  id: string;
+  scope: string;
+  payload: Entry;
+  error?: string;
+};
 
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (typeof window === "undefined" || !("indexedDB" in window)) {
-      return reject(new Error("IndexedDB is not supported in this environment"));
-    }
-
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true });
-      }
+async function withStore<T>(
+  mode: IDBTransactionMode,
+  operation: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 2);
+    request.onupgradeneeded = () => {
+      const store = request.result.createObjectStore(STORE_NAME, { keyPath: "id" });
+      store.createIndex("scope", "scope");
     };
-
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-}
-
-export async function enqueueOfflineEvent(eventData: Omit<OfflinePracticeEvent, "id" | "queuedAt">): Promise<number> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], "readwrite");
-    const store = transaction.objectStore(STORE_NAME);
-    const item: OfflinePracticeEvent = {
-      ...eventData,
-      queuedAt: new Date().toISOString(),
-    };
-    const request = store.add(item);
-    request.onsuccess = () => resolve(request.result as number);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-export async function getQueuedOfflineEvents(): Promise<OfflinePracticeEvent[]> {
   try {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], "readonly");
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.getAll();
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
+    return await new Promise<T>((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, mode);
+      const request = operation(transaction.objectStore(STORE_NAME));
+      transaction.oncomplete = () => resolve(request.result);
+      transaction.onabort = () => reject(transaction.error);
     });
-  } catch {
-    return [];
+  } finally {
+    db.close();
   }
 }
 
-export async function removeSyncedOfflineEvent(id: number): Promise<void> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], "readwrite");
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.delete(id);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
+export async function saveOfflineEvent(item: OfflinePracticeEvent): Promise<void> {
+  await withStore("readwrite", (store) => store.put(item));
 }
 
-export async function syncQueuedOfflineEvents(
-  submitHandler: (event: OfflinePracticeEvent) => Promise<{ success: boolean; error?: string }>
-): Promise<{ syncedCount: number; errorsCount: number }> {
-  const items = await getQueuedOfflineEvents();
-  let syncedCount = 0;
-  let errorsCount = 0;
+export async function getQueuedOfflineEvents(scope: string): Promise<OfflinePracticeEvent[]> {
+  return withStore("readonly", (store) => store.index("scope").getAll(scope));
+}
 
-  for (const item of items) {
-    if (!item.id) continue;
-    try {
-      const result = await submitHandler(item);
-      if (result.success) {
-        await removeSyncedOfflineEvent(item.id);
-        syncedCount++;
-      } else {
-        errorsCount++;
-      }
-    } catch {
-      errorsCount++;
-    }
-  }
-
-  return { syncedCount, errorsCount };
+export async function removeOfflineEvent(id: string): Promise<void> {
+  await withStore("readwrite", (store) => store.delete(id));
 }
 
 export function registerServiceWorker(): void {
-  if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker
-        .register("/sw.js")
-        .then((registration) => {
-          console.log("PracticumOS PWA Service Worker registered with scope:", registration.scope);
-        })
-        .catch((err) => {
-          console.warn("Service Worker registration failed:", err);
-        });
+  if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+    void navigator.serviceWorker.register("/sw.js").catch((error) => {
+      console.warn("Service worker registration failed.", error);
     });
   }
 }

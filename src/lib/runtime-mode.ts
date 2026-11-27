@@ -1,8 +1,8 @@
 /**
- * Demo mode is deliberately opt-in in production. It exists only to support
- * seeded local previews and must never stand in for authenticated access.
+ * Demo mode is for seeded local and preview deployments.
  */
 export function isDemoMode(): boolean {
+  if (process.env.VERCEL_ENV === "production") return false;
   return (
     process.env.PRACTICUM_DEMO_MODE === "true" ||
     (process.env.NODE_ENV !== "production" && process.env.PRACTICUM_DEMO_MODE !== "false")

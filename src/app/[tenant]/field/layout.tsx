@@ -1,8 +1,7 @@
+import { fieldSupervisorScope } from "@/lib/record-access";
+import { requirePortalAccess } from "@/lib/portal-access";
 import { ReactNode } from "react";
-import { notFound, redirect } from "next/navigation";
-import { SystemRole } from "@prisma/client";
 import { db } from "@/lib/db";
-import { requireTenantRole } from "@/lib/authz";
 import { isDemoMode } from "@/lib/runtime-mode";
 import { FieldSidebar } from "@/components/layout/FieldSidebar";
 import { FieldHeader } from "@/components/layout/FieldHeader";
@@ -21,30 +20,13 @@ export default async function FieldSupervisorLayout(
   } = props;
 
   const demoMode = isDemoMode();
-  let actorId: string | null = null;
-  let tenantId: string | null = null;
+  const { actor, tenant } = await requirePortalAccess(params.tenant, "field");
 
-  if (demoMode) {
-    const tenant = await db.organisation.findUnique({ where: { slug: params.tenant } });
-    if (!tenant) notFound();
-    tenantId = tenant.id;
-  } else {
-    try {
-      const { actor, tenant } = await requireTenantRole(params.tenant, [SystemRole.FIELD_SUPERVISOR]);
-      actorId = actor.id;
-      tenantId = tenant.id;
-    } catch {
-      redirect("/auth/login?error=access");
-    }
-  }
-
-  const fieldSupervisor = await db.person.findFirst({
-    where: demoMode
-      ? { roleMemberships: { some: { role: "FIELD_SUPERVISOR" } } }
-      : { id: actorId! },
+  const fieldSupervisor = await db.person.findUnique({
+    where: { id: actor.id },
     include: {
       fieldSupervisedAllocations: {
-        where: { cycle: { tenantId: tenantId! } },
+        where: fieldSupervisorScope(actor.id, tenant.id),
         include: {
           hostOrg: true,
           practiceEvents: { where: { verificationStatus: "PENDING" } },

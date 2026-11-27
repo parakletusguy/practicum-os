@@ -13,3 +13,7 @@ const ALLOWED_CYCLE_TRANSITIONS: Record<CycleStatus, CycleStatus[]> = {
 export function canTransitionCycle(from: CycleStatus, to: CycleStatus): boolean {
   return ALLOWED_CYCLE_TRANSITIONS[from].includes(to);
 }
+
+export function nextCycleStatus(from: CycleStatus): CycleStatus | undefined {
+  return ALLOWED_CYCLE_TRANSITIONS[from][0];
+}

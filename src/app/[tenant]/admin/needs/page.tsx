@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { requirePortalAccess } from "@/lib/portal-access";
+import { isDemoMode } from "@/lib/runtime-mode";
 import { 
   HeartHandshake, 
   Sparkles, 
@@ -13,12 +16,20 @@ import {
 } from "lucide-react";
 
 interface AdminNeedsPageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
 export default async function AdminNeedsPage({ params }: AdminNeedsPageProps) {
+  const { tenant } = await params;
+  const { actor } = await requirePortalAccess(tenant, "admin");
+  const isCommunityOperator = isDemoMode() || Boolean(await prisma.orgMembership.findFirst({
+    where: { personId: actor.id, role: "PLATFORM_SUPERADMIN", status: "ACTIVE" },
+    select: { id: true },
+  }));
+  if (!isCommunityOperator) notFound();
+
   const requests = await prisma.needRequest.findMany({
     orderBy: { createdAt: "desc" },
     include: {

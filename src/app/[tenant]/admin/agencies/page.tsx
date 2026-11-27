@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import { db } from "@/lib/db";
 import { 
   Building2, 
@@ -11,6 +12,7 @@ import {
   Calendar
 } from "lucide-react";
 import { AgencyModalClient } from "./agency-modal-client";
+import { AgencyCapacityControls } from "./agency-capacity-controls";
 
 interface AgenciesPageProps {
   params: Promise<{
@@ -24,11 +26,7 @@ export default async function AgenciesPage(props: AgenciesPageProps) {
   const params = await props.params;
   const tenantSlug = params.tenant;
 
-  const tenant = await db.organisation.findUnique({
-    where: { slug: tenantSlug },
-  });
-
-  if (!tenant) return <div>Tenant not found</div>;
+  const { tenant } = await requirePortalAccess(tenantSlug, "admin");
 
   // Placement host agencies
   const partnerAgencies = await db.organisation.findMany({
@@ -55,6 +53,7 @@ export default async function AgenciesPage(props: AgenciesPageProps) {
     where: { tenantId: tenant.id },
     orderBy: { createdAt: "desc" },
   });
+  const capacityCycles = activeCycles.filter((cycle) => cycle.status === "CAPACITY_OPEN").map(({ id, name }) => ({ id, name }));
 
   const totalSlotsAcrossAgencies = partnerAgencies.reduce(
     (acc, a) => acc + a.placementOffers.reduce((sum, o) => sum + o.totalSlots, 0),
@@ -217,6 +216,7 @@ export default async function AgenciesPage(props: AgenciesPageProps) {
               </div>
 
               {/* Footer status */}
+              <AgencyCapacityControls tenantSlug={tenantSlug} agencyId={agency.id} status={agency.verificationStatus} cycles={capacityCycles} />
               <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs">
                 <span className="text-slate-500 font-medium">
                   Currently Placed: <strong className="text-slate-900">{currentPlacedStudents} Trainees</strong>

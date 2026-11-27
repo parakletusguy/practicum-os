@@ -24,6 +24,7 @@ interface MatchingWorkspaceClientProps {
   tenantSlug: string;
   cycleId: string;
   cycleName: string;
+  isMatching: boolean;
   offers: any[];
   unmatchedStudents: any[];
   students: any[];
@@ -35,6 +36,7 @@ export function MatchingWorkspaceClient({
   tenantSlug,
   cycleId,
   cycleName,
+  isMatching,
   offers,
   unmatchedStudents,
   students,
@@ -119,7 +121,7 @@ export function MatchingWorkspaceClient({
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={unmatchedStudents.length === 0 || availableCapacity === 0 || isPending}
+            disabled={!isMatching || unmatchedStudents.length === 0 || availableCapacity === 0 || isPending}
             onClick={handleRunAlgorithm}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
           >
@@ -134,7 +136,7 @@ export function MatchingWorkspaceClient({
           {proposedCount > 0 && (
             <button
               type="button"
-              disabled={isPending}
+              disabled={!isMatching || isPending}
               onClick={handleApproveAll}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
             >

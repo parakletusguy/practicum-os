@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { AllocationStatus, SystemRole } from "@prisma/client";
+import { AllocationStatus, CycleStatus, SystemRole } from "@prisma/client";
 import { requireTenantRole } from "@/lib/authz";
 import { isDemoMode } from "@/lib/runtime-mode";
 
@@ -11,7 +11,7 @@ const MATCHING_ADMIN_ROLES = [SystemRole.COORDINATOR, SystemRole.INSTITUTION_ADM
 export async function executeMatchingAlgorithmAction(tenantSlug: string, cycleId: string) {
   try {
     const cycle = await db.practicumCycle.findFirst({
-      where: { id: cycleId, tenant: { slug: tenantSlug } },
+      where: { id: cycleId, tenant: { slug: tenantSlug }, status: CycleStatus.MATCHING },
       select: { id: true, tenantId: true },
     });
     if (!cycle) {
@@ -40,6 +40,8 @@ export async function executeMatchingAlgorithmAction(tenantSlug: string, cycleId
     const offers = await db.placementOffer.findMany({
       where: {
         cycleId: cycle.id,
+        status: "CONFIRMED",
+        hostOrg: { verificationStatus: "VERIFIED" },
         availableSlots: { gt: 0 },
       },
       include: {
@@ -66,6 +68,21 @@ export async function executeMatchingAlgorithmAction(tenantSlug: string, cycleId
         },
       },
     });
+    const hostSupervisors = await db.orgMembership.findMany({
+      where: {
+        organisationId: { in: [cycle.tenantId, ...offers.map((offer) => offer.hostOrgId)] },
+        role: SystemRole.FIELD_SUPERVISOR,
+        status: "ACTIVE",
+      },
+      select: { organisationId: true, personId: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const fieldSupervisorByOrganisation = new Map<string, string>();
+    for (const membership of hostSupervisors) {
+      if (!fieldSupervisorByOrganisation.has(membership.organisationId)) {
+        fieldSupervisorByOrganisation.set(membership.organisationId, membership.personId);
+      }
+    }
 
     let matchedCount = 0;
     const offersCapacityMap = new Map(offers.map((o) => [o.id, o.availableSlots]));
@@ -99,7 +116,13 @@ export async function executeMatchingAlgorithmAction(tenantSlug: string, cycleId
           // The conditional update makes capacity enforcement safe if two
           // coordinators start matching at the same time.
           const capacity = await tx.placementOffer.updateMany({
-            where: { id: chosenOffer.id, availableSlots: { gt: 0 } },
+            where: {
+              id: chosenOffer.id,
+              cycle: { status: CycleStatus.MATCHING },
+              hostOrg: { verificationStatus: "VERIFIED" },
+              status: "CONFIRMED",
+              availableSlots: { gt: 0 },
+            },
             data: { availableSlots: { decrement: 1 } },
           });
           if (capacity.count !== 1) return false;
@@ -112,6 +135,8 @@ export async function executeMatchingAlgorithmAction(tenantSlug: string, cycleId
               hostOrgId: chosenOffer.hostOrgId,
               placementOfferId: chosenOffer.id,
               academicSupervisorId: facultySupervisor?.id || null,
+              fieldSupervisorId: fieldSupervisorByOrganisation.get(chosenOffer.hostOrgId)
+                ?? fieldSupervisorByOrganisation.get(cycle.tenantId) ?? null,
               status: AllocationStatus.PROPOSED,
             },
           });
@@ -169,7 +194,7 @@ export async function manualAllocateStudentAction(data: {
 }) {
   try {
     const cycle = await db.practicumCycle.findFirst({
-      where: { id: data.cycleId, tenant: { slug: data.tenantSlug } },
+      where: { id: data.cycleId, tenant: { slug: data.tenantSlug }, status: CycleStatus.MATCHING },
       select: { id: true, tenantId: true },
     });
     if (!cycle) {
@@ -186,7 +211,7 @@ export async function manualAllocateStudentAction(data: {
       return { success: false, error: "Student not found" };
     }
     const hostOrganisation = await db.organisation.findFirst({
-      where: { id: data.hostOrgId, tenantId: cycle.tenantId },
+      where: { id: data.hostOrgId, tenantId: cycle.tenantId, verificationStatus: "VERIFIED" },
       select: { id: true },
     });
     if (!hostOrganisation) {
@@ -224,43 +249,73 @@ export async function manualAllocateStudentAction(data: {
       if (!supervisor) return { success: false, error: "Field supervisor is not active for this placement agency." };
     }
 
-    // Upsert allocation
-    const allocation = await db.placementAllocation.upsert({
-      where: { cohortStudentId: data.cohortStudentId },
-      update: {
-        hostOrgId: data.hostOrgId,
-        placementOfferId: data.placementOfferId || null,
-        academicSupervisorId: data.academicSupervisorId || null,
-        fieldSupervisorId: data.fieldSupervisorId || null,
-        status: AllocationStatus.APPROVED,
-      },
-      create: {
-        cycleId: cycle.id,
-        cohortStudentId: data.cohortStudentId,
-        studentPersonId: student.personId,
-        hostOrgId: data.hostOrgId,
-        placementOfferId: data.placementOfferId || null,
-        academicSupervisorId: data.academicSupervisorId || null,
-        fieldSupervisorId: data.fieldSupervisorId || null,
-        status: AllocationStatus.APPROVED,
-      },
-    });
-
-    await db.cohortStudent.update({
-      where: { id: data.cohortStudentId },
-      data: { status: "MATCHED" },
-    });
-
-    await db.auditLog.create({
-      data: {
-        tenantId: cycle.tenantId,
-        actorPersonId: authorization?.actor.id,
-        actionType: "ALLOCATION_MANUALLY_ASSIGNED",
-        resourceType: "PlacementAllocation",
-        resourceId: allocation.id,
-        afterState: { cohortStudentId: student.id, hostOrgId: hostOrganisation.id },
-      },
-    });
+    const allocation = await db.$transaction(async (tx) => {
+      const previous = await tx.placementAllocation.findUnique({
+        where: { cohortStudentId: student.id },
+        select: { status: true, placementOfferId: true },
+      });
+      if (previous && previous.status !== AllocationStatus.PROPOSED && previous.status !== AllocationStatus.APPROVED) {
+        throw new Error("This placement can no longer be reassigned from the matching desk.");
+      }
+      const offerId = data.placementOfferId || null;
+      if (!offerId) throw new Error("Choose a placement offer with capacity.");
+      if (previous?.placementOfferId !== offerId) {
+        const reserved = await tx.placementOffer.updateMany({
+          where: {
+            id: offerId,
+            hostOrgId: hostOrganisation.id,
+            hostOrg: { verificationStatus: "VERIFIED" },
+            cycleId: cycle.id,
+            cycle: { status: CycleStatus.MATCHING },
+            status: "CONFIRMED",
+            availableSlots: { gt: 0 },
+          },
+          data: { availableSlots: { decrement: 1 } },
+        });
+        if (reserved.count !== 1) throw new Error("That offer has no available capacity.");
+        if (previous?.placementOfferId) {
+          await tx.placementOffer.updateMany({
+            where: { id: previous.placementOfferId, availableSlots: { lt: tx.placementOffer.fields.totalSlots } },
+            data: { availableSlots: { increment: 1 } },
+          });
+        }
+      }
+      const assigned = await tx.placementAllocation.upsert({
+          where: { cohortStudentId: data.cohortStudentId },
+          update: {
+            hostOrgId: data.hostOrgId,
+            placementOfferId: data.placementOfferId || null,
+            academicSupervisorId: data.academicSupervisorId || null,
+            fieldSupervisorId: data.fieldSupervisorId || null,
+            status: AllocationStatus.APPROVED,
+          },
+          create: {
+            cycleId: cycle.id,
+            cohortStudentId: data.cohortStudentId,
+            studentPersonId: student.personId,
+            hostOrgId: data.hostOrgId,
+            placementOfferId: data.placementOfferId || null,
+            academicSupervisorId: data.academicSupervisorId || null,
+            fieldSupervisorId: data.fieldSupervisorId || null,
+            status: AllocationStatus.APPROVED,
+          },
+      });
+      await tx.cohortStudent.update({
+          where: { id: data.cohortStudentId },
+          data: { status: "MATCHED" },
+      });
+      await tx.auditLog.create({
+          data: {
+            tenantId: cycle.tenantId,
+            actorPersonId: authorization?.actor.id,
+            actionType: "ALLOCATION_MANUALLY_ASSIGNED",
+            resourceType: "PlacementAllocation",
+            resourceId: allocation.id,
+            afterState: { cohortStudentId: student.id, hostOrgId: hostOrganisation.id },
+          },
+      });
+      return assigned;
+    }, { isolationLevel: "Serializable" });
 
     revalidatePath(`/${data.tenantSlug}/admin/matching`);
     revalidatePath(`/${data.tenantSlug}/admin/postings`);
@@ -278,7 +333,7 @@ export async function approveAllocationAction(
 ) {
   try {
     const allocation = await db.placementAllocation.findFirst({
-      where: { id: allocationId, cycle: { tenant: { slug: tenantSlug } } },
+      where: { id: allocationId, cycle: { tenant: { slug: tenantSlug }, status: CycleStatus.MATCHING } },
       select: { id: true, status: true, cycle: { select: { tenantId: true } } },
     });
     if (!allocation) return { success: false, error: "Allocation not found for this institution." };
@@ -319,7 +374,7 @@ export async function approveAllProposedAllocationsAction(
 ) {
   try {
     const cycle = await db.practicumCycle.findFirst({
-      where: { id: cycleId, tenant: { slug: tenantSlug } },
+      where: { id: cycleId, tenant: { slug: tenantSlug }, status: CycleStatus.MATCHING },
       select: { id: true, tenantId: true },
     });
     if (!cycle) return { success: false, error: "Practicum cycle not found for this institution." };

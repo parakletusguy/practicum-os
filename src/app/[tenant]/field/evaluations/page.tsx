@@ -1,4 +1,5 @@
-import { notFound } from "next/navigation";
+import { fieldSupervisorScope } from "@/lib/record-access";
+import { requirePortalAccess } from "@/lib/portal-access";
 import { prisma } from "@/lib/db";
 import { RubricFormClient } from "./rubric-form-client";
 import { Award, ShieldCheck } from "lucide-react";
@@ -9,24 +10,13 @@ export default async function FieldEvaluationsPage(
   }
 ) {
   const params = await props.params;
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
+  const { actor, tenant } = await requirePortalAccess(params.tenant, "field");
 
-  if (!tenant) {
-    notFound();
-  }
-
-  const fieldSupervisor = await prisma.person.findFirst({
-    where: {
-      roleMemberships: {
-        some: {
-          role: "FIELD_SUPERVISOR",
-        },
-      },
-    },
+  const fieldSupervisor = await prisma.person.findUnique({
+    where: { id: actor.id },
     include: {
       fieldSupervisedAllocations: {
+        where: fieldSupervisorScope(actor.id, tenant.id),
         include: {
           cohortStudent: {
             include: { person: true },

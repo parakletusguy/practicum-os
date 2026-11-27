@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { AlertTriageClient } from "@/app/[tenant]/faculty/alerts/alert-triage-client";
@@ -9,13 +10,7 @@ export default async function AdminAlertsPage(
   }
 ) {
   const params = await props.params;
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
-
-  if (!tenant) {
-    notFound();
-  }
+  const { tenant } = await requirePortalAccess(params.tenant, "admin");
 
   const cycle = await prisma.practicumCycle.findFirst({
     where: { tenantId: tenant.id },

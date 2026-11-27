@@ -14,7 +14,7 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:seed": "node scripts/seed.mjs",
-    "test": "vitest run",
+    "test": "vitest run --configLoader runner",
     "test:e2e": "node scripts/verify_30_step_lifecycle.mjs"
   },
   "dependencies": {

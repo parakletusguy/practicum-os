@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { formatDate, formatMinutesToHours } from "@/lib/utils";
@@ -27,6 +28,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminDashboard(props: AdminDashboardProps) {
   const params = await props.params;
   const tenantSlug = params.tenant;
+  await requirePortalAccess(tenantSlug, "admin");
 
   // 1. Fetch Tenant Organisation
   const tenant = await db.organisation.findUnique({

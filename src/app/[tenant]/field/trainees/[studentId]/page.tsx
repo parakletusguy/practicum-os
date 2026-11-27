@@ -1,3 +1,5 @@
+import { fieldSupervisorScope } from "@/lib/record-access";
+import { requirePortalAccess } from "@/lib/portal-access";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -21,16 +23,14 @@ export default async function FieldTraineeDetailPage(
   }
 ) {
   const params = await props.params;
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
-
-  if (!tenant) {
-    notFound();
-  }
+  const { actor, tenant } = await requirePortalAccess(params.tenant, "field");
 
   const cohortStudent = await prisma.cohortStudent.findUnique({
-    where: { id: params.studentId },
+    where: {
+      id: params.studentId,
+      cycle: { tenantId: tenant.id },
+      allocation: fieldSupervisorScope(actor.id, tenant.id),
+    },
     include: {
       person: true,
       cycle: true,
@@ -124,6 +124,7 @@ export default async function FieldTraineeDetailPage(
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <Link href={`/${params.tenant}/field/contracts/${alloc.id}`} className="rounded-lg border px-4 py-2 text-sm text-emerald-800">Learning contract</Link>
           <Link
             href={`/${params.tenant}/field/verifications`}
             className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/25 transition-all text-center flex items-center justify-center gap-2"

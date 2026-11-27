@@ -191,7 +191,7 @@ export function AgencyModalClient({
                   className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold shadow-xs disabled:opacity-60 cursor-pointer"
                 >
                   {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  {isPending ? "Verifying & Saving..." : "Save Partner Agency"}
+                  {isPending ? "Saving..." : "Save Partner Agency"}
                 </button>
               </div>
             </form>

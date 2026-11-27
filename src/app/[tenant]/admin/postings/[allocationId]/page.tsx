@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
@@ -24,10 +25,11 @@ export const dynamic = "force-dynamic";
 
 export default async function PostingLetterPage(props: PostingLetterPageProps) {
   const params = await props.params;
+  await requirePortalAccess(params.tenant, "admin");
   const { tenant: tenantSlug, allocationId } = params;
 
   const allocation = await db.placementAllocation.findUnique({
-    where: { id: allocationId },
+    where: { id: allocationId, cycle: { tenant: { slug: tenantSlug } } },
     include: {
       cycle: {
         include: {

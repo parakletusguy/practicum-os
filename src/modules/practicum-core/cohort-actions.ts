@@ -34,7 +34,7 @@ export async function importCohortStudentsAction(data: {
       ? await requireTenantRole(data.tenantSlug, [SystemRole.COORDINATOR, SystemRole.INSTITUTION_ADMIN])
       : null;
     const cycle = await db.practicumCycle.findFirst({
-      where: { id: data.cycleId, tenantId: tenant.id },
+      where: { id: data.cycleId, tenantId: tenant.id, status: { in: ["PLANNING", "CAPACITY_OPEN", "MATCHING"] } },
       select: { id: true },
     });
     if (!cycle) {

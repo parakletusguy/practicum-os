@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { SupervisionVisitModalClient } from "@/app/[tenant]/faculty/visits/supervision-visit-modal-client";
@@ -9,13 +10,7 @@ export default async function AdminVisitsPage(
   }
 ) {
   const params = await props.params;
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
-
-  if (!tenant) {
-    notFound();
-  }
+  const { actor: coordinator, tenant } = await requirePortalAccess(params.tenant, "admin");
 
   const cycle = await prisma.practicumCycle.findFirst({
     where: { tenantId: tenant.id },
@@ -39,16 +34,6 @@ export default async function AdminVisitsPage(
   if (!cycle) {
     notFound();
   }
-
-  const coordinator = await prisma.person.findFirst({
-    where: {
-      roleMemberships: {
-        some: {
-          role: "COORDINATOR",
-        },
-      },
-    },
-  });
 
   const allocations = cycle.allocations;
 

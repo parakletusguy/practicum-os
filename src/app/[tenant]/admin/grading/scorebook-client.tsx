@@ -1,5 +1,6 @@
 "use client";
 
+import type { GradingFormulaConfig } from "@/modules/grading/formula";
 import { useState } from "react";
 import {
   Award,
@@ -20,18 +21,22 @@ import {
   approveCohortGradeAction,
 } from "@/modules/grading/evaluator";
 
+function formatScore(score: number | null) {
+  return score === null ? "—" : score.toFixed(1) + "%";
+}
+
 interface StudentGradeRow {
   studentId: string;
   gradeId?: string;
   matricNumber: string;
   studentName: string;
   agencyName: string;
-  logbookHoursScore: number;
-  fieldEvalScore: number;
-  academicEvalScore: number;
-  reportsScore: number;
-  compositeScore: number;
-  letterGrade: string;
+  logbookHoursScore: number | null;
+  fieldEvalScore: number | null;
+  academicEvalScore: number | null;
+  reportsScore: number | null;
+  compositeScore: number | null;
+  letterGrade: string | null;
   isApproved: boolean;
   approvedAt?: string | Date | null;
   moderationRemarks?: string | null;
@@ -41,7 +46,7 @@ interface Props {
   initialGrades: StudentGradeRow[];
   cycleId: string;
   cycleName: string;
-  approverPersonId: string;
+  formula: GradingFormulaConfig["components"];
   tenantSlug: string;
 }
 
@@ -49,7 +54,7 @@ export function ScorebookClient({
   initialGrades,
   cycleId,
   cycleName,
-  approverPersonId,
+  formula,
   tenantSlug,
 }: Props) {
   const [grades, setGrades] = useState<StudentGradeRow[]>(initialGrades);
@@ -70,13 +75,16 @@ export function ScorebookClient({
   // Grade Distribution
   const gradeDistribution: Record<string, number> = { A: 0, B: 0, C: 0, D: 0, F: 0 };
   let totalComposite = 0;
+  let scoredCount = 0;
 
   grades.forEach((g) => {
+    if (g.letterGrade === null || g.compositeScore === null) return;
+    scoredCount++;
     gradeDistribution[g.letterGrade] = (gradeDistribution[g.letterGrade] || 0) + 1;
     totalComposite += g.compositeScore;
   });
 
-  const cohortAverage = grades.length > 0 ? (totalComposite / grades.length).toFixed(1) : "0.0";
+  const cohortAverage = scoredCount > 0 ? (totalComposite / scoredCount).toFixed(1) : "0.0";
   const approvedCount = grades.filter((g) => g.isApproved).length;
 
   const handleRecalculate = async () => {
@@ -108,7 +116,6 @@ export function ScorebookClient({
 
     const formData = new FormData();
     formData.append("gradeId", activeModalRow.gradeId);
-    formData.append("approverPersonId", approverPersonId);
     formData.append("moderationRemarks", moderationRemarks);
     formData.append("tenantSlug", tenantSlug);
 
@@ -120,14 +127,14 @@ export function ScorebookClient({
           row.gradeId === activeModalRow.gradeId
             ? {
                 ...row,
-                isApproved: true,
-                approvedAt: new Date(),
+                isApproved: res.locked === true,
+                approvedAt: res.locked ? new Date() : null,
                 moderationRemarks: moderationRemarks,
               }
             : row
         )
       );
-      setToastMessage({ type: "success", text: res.message || "Grade locked and approved." });
+      setToastMessage({ type: "success", text: res.message || "Approval recorded." });
       setTimeout(() => {
         setActiveModalRow(null);
         setModerationRemarks("");
@@ -151,7 +158,7 @@ export function ScorebookClient({
           </div>
           <h2 className="text-xl font-bold">{cycleName} — Master Cohort Scorebook</h2>
           <p className="text-xs text-slate-300 mt-1 max-w-xl">
-            Formula: 40% Field Supervisor + 30% Academic Review + 20% Logbook Hours + 10% Reflective Report.
+            {formula.map(({ name, weight }) => `${Math.round(weight * 10000) / 100}% ${name}`).join(" · ")}
           </p>
         </div>
 
@@ -285,19 +292,19 @@ export function ScorebookClient({
                     {row.agencyName}
                   </td>
                   <td className="py-3.5 px-3 text-center font-medium text-slate-700">
-                    {row.logbookHoursScore.toFixed(1)}%
+                    {formatScore(row.logbookHoursScore)}
                   </td>
                   <td className="py-3.5 px-3 text-center font-medium text-slate-700">
-                    {row.fieldEvalScore.toFixed(1)}%
+                    {formatScore(row.fieldEvalScore)}
                   </td>
                   <td className="py-3.5 px-3 text-center font-medium text-slate-700">
-                    {row.academicEvalScore.toFixed(1)}%
+                    {formatScore(row.academicEvalScore)}
                   </td>
                   <td className="py-3.5 px-3 text-center font-medium text-slate-700">
-                    {row.reportsScore.toFixed(1)}%
+                    {formatScore(row.reportsScore)}
                   </td>
                   <td className="py-3.5 px-4 text-center font-black text-slate-900 text-sm">
-                    {row.compositeScore.toFixed(1)}%
+                    {formatScore(row.compositeScore)}
                   </td>
                   <td className="py-3.5 px-3 text-center">
                     <span
@@ -311,7 +318,7 @@ export function ScorebookClient({
                           : "bg-rose-100 text-rose-800"
                       }`}
                     >
-                      {row.letterGrade}
+                      {row.letterGrade ?? "—"}
                     </span>
                   </td>
                   <td className="py-3.5 px-4 text-center">
@@ -323,7 +330,7 @@ export function ScorebookClient({
                     ) : (
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
                         <Unlock className="w-3 h-3 text-amber-600" />
-                        Draft
+                        {row.gradeId ? "Draft" : "Incomplete"}
                       </span>
                     )}
                   </td>
@@ -336,7 +343,7 @@ export function ScorebookClient({
                         }}
                         className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 text-white hover:bg-emerald-600 transition-colors"
                       >
-                        {row.isApproved ? "View Lock" : "Moderate & Lock"}
+                        {row.isApproved ? "View Lock" : "Review and approve"}
                       </button>
                     )}
                   </td>
@@ -390,9 +397,9 @@ export function ScorebookClient({
                 </span>
               </div>
               <div className="col-span-2 pt-2 border-t border-slate-200/60 text-slate-600">
-                Logbook Hours: {activeModalRow.logbookHoursScore.toFixed(1)}% • Field Assessment:{" "}
-                {activeModalRow.fieldEvalScore.toFixed(1)}% • Academic Review:{" "}
-                {activeModalRow.academicEvalScore.toFixed(1)}%
+                Logbook Hours: {formatScore(activeModalRow.logbookHoursScore)} • Field Assessment:{" "}
+                {formatScore(activeModalRow.fieldEvalScore)} • Academic Review:{" "}
+                {formatScore(activeModalRow.academicEvalScore)}
               </div>
             </div>
 

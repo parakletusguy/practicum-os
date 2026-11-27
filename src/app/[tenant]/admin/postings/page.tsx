@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
@@ -31,11 +32,7 @@ export default async function PostingsPage(props: PostingsPageProps) {
   const params = await props.params;
   const tenantSlug = params.tenant;
 
-  const tenant = await db.organisation.findUnique({
-    where: { slug: tenantSlug },
-  });
-
-  if (!tenant) return <div>Tenant not found</div>;
+  const { tenant } = await requirePortalAccess(tenantSlug, "admin");
 
   const cycles = await db.practicumCycle.findMany({
     where: { tenantId: tenant.id },

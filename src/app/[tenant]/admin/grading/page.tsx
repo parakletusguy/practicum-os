@@ -1,5 +1,8 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { getAssessmentScores } from "@/modules/grading/assessment-scores";
+import { calculateWeightedGrade, readGradingFormula } from "@/modules/grading/formula";
 import { ScorebookClient } from "./scorebook-client";
 import { Award, ShieldCheck } from "lucide-react";
 
@@ -9,13 +12,7 @@ export default async function CohortGradingPage(
   }
 ) {
   const params = await props.params;
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
-
-  if (!tenant) {
-    notFound();
-  }
+  const { tenant } = await requirePortalAccess(params.tenant, "admin");
 
   // Get active practicum cycle
   const cycle = await prisma.practicumCycle.findFirst({
@@ -29,8 +26,7 @@ export default async function CohortGradingPage(
             include: {
               hostOrg: true,
               practiceEvents: true,
-              assessments: true,
-              supervisionVisits: true,
+              assessments: { orderBy: [{ submittedAt: "desc" }, { id: "desc" }] },
             },
           },
           grade: true,
@@ -43,40 +39,29 @@ export default async function CohortGradingPage(
     notFound();
   }
 
-  // Find coordinator / admin person
-  const coordinator = await prisma.person.findFirst({
-    where: {
-      roleMemberships: {
-        some: {
-          role: "COORDINATOR",
-        },
-      },
-    },
-  });
-
+  const formula = readGradingFormula(cycle.gradingFormula);
   const gradeRows = cycle.students.map((student) => {
     const alloc = student.allocation;
     const grade = student.grade;
 
-    const logHoursScore = grade?.logbookHoursScore ?? 0;
-    const fieldScore = grade?.fieldEvalScore ?? 75;
-    const academicScore = grade?.academicEvalScore ?? 75;
-    const reportsScore = grade?.reportsScore ?? 80;
-    const composite = grade?.compositeScore ?? 75;
-    const letter = grade?.letterGrade ?? "A";
+    const scores = getAssessmentScores(alloc, cycle.requiredHours);
+    const result = calculateWeightedGrade(scores, formula);
+    const currentGrade = grade?.isApproved || result.complete && grade?.compositeScore === result.compositeScore && grade.letterGrade === result.letterGrade
+      && grade.fieldEvalScore === scores.fieldEval && grade.academicEvalScore === scores.academicEval
+      && grade.logbookHoursScore === scores.logbookHours && grade.reportsScore === scores.reports ? grade : null;
 
     return {
       studentId: student.id,
-      gradeId: grade?.id,
+      gradeId: currentGrade?.id,
       matricNumber: student.matricNumber,
       studentName: `${student.person.firstName} ${student.person.lastName}`,
       agencyName: alloc?.hostOrg.name || "Unassigned",
-      logbookHoursScore: logHoursScore,
-      fieldEvalScore: fieldScore,
-      academicEvalScore: academicScore,
-      reportsScore: reportsScore,
-      compositeScore: composite,
-      letterGrade: letter,
+      logbookHoursScore: currentGrade?.logbookHoursScore ?? scores.logbookHours,
+      fieldEvalScore: currentGrade?.fieldEvalScore ?? scores.fieldEval,
+      academicEvalScore: currentGrade?.academicEvalScore ?? scores.academicEval,
+      reportsScore: currentGrade?.reportsScore ?? scores.reports,
+      compositeScore: currentGrade?.compositeScore ?? null,
+      letterGrade: currentGrade?.letterGrade ?? null,
       isApproved: grade?.isApproved ?? false,
       approvedAt: grade?.approvedAt,
       moderationRemarks: grade?.moderationRemarks,
@@ -102,7 +87,7 @@ export default async function CohortGradingPage(
         initialGrades={gradeRows}
         cycleId={cycle.id}
         cycleName={cycle.name}
-        approverPersonId={coordinator?.id || ""}
+        formula={formula.components}
         tenantSlug={params.tenant}
       />
     </div>

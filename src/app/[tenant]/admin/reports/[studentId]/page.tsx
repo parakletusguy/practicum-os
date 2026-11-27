@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -18,16 +19,10 @@ export default async function StudentOfficialTranscriptPage(
   }
 ) {
   const params = await props.params;
-  const tenant = await prisma.organisation.findUnique({
-    where: { slug: params.tenant },
-  });
-
-  if (!tenant) {
-    notFound();
-  }
+  const { tenant } = await requirePortalAccess(params.tenant, "admin");
 
   const cohortStudent = await prisma.cohortStudent.findUnique({
-    where: { id: params.studentId },
+    where: { id: params.studentId, cycle: { tenantId: tenant.id } },
     include: {
       person: true,
       cycle: {
@@ -57,6 +52,10 @@ export default async function StudentOfficialTranscriptPage(
   const alloc = cohortStudent.allocation;
   const cycle = cohortStudent.cycle;
   const grade = cohortStudent.grade;
+  const issued = grade ? await prisma.auditLog.findFirst({
+    where: { tenantId: tenant.id, resourceType: "CohortGrade", resourceId: grade.id, actionType: "TRANSCRIPT_ISSUED" },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true },
+  }) : null;
   const events = alloc.practiceEvents;
 
   // Breakdown of verified minutes by category
@@ -90,6 +89,7 @@ export default async function StudentOfficialTranscriptPage(
           Back to Reports Desk
         </Link>
         <div className="flex items-center gap-2">
+          {issued && <Link href={`/${params.tenant}/admin/transcripts/${issued.id}`} className="rounded-lg border px-3 py-2 text-sm font-semibold text-emerald-800">Verify issued transcript</Link>}
           <PrintButton />
         </div>
       </div>
@@ -109,12 +109,12 @@ export default async function StudentOfficialTranscriptPage(
           </p>
           <div className="pt-2">
             <span className="inline-block px-4 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-slate-900 text-white">
-              Official Practicum Transcript & Clinical Competency Record
+              Practicum and competency summary
             </span>
           </div>
           <div className="flex justify-between items-center text-[10px] text-slate-500 pt-2 font-mono">
             <span>TRANSCRIPT REF: {transcriptRef}</span>
-            <span>ISSUED: {new Date().toLocaleDateString()}</span>
+            <span>{grade?.isApproved ? "Approved results" : "Provisional results"}</span>
           </div>
         </div>
 

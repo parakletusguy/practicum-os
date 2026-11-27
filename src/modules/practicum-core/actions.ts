@@ -118,24 +118,36 @@ export async function updateCycleStatusAction(
       return { success: false, error: `Cannot change a ${cycle.status} cycle directly to ${newStatus}.` };
     }
 
-    const updated = await db.practicumCycle.update({
-      where: { id: cycle.id },
-      data: { status: newStatus },
-    });
-    await db.auditLog.create({
-      data: {
-        tenantId: cycle.tenantId,
-        actorPersonId: authorization?.actor.id,
-        actionType: "PRACTICUM_CYCLE_STATUS_CHANGED",
-        resourceType: "PracticumCycle",
-        resourceId: cycle.id,
-        beforeState: { status: cycle.status },
-        afterState: { status: newStatus },
-      },
+    const updated = await db.$transaction(async (tx) => {
+      const changed = await tx.practicumCycle.updateMany({
+        where: { id: cycle.id, status: cycle.status },
+        data: { status: newStatus },
+      });
+      if (changed.count !== 1) throw new Error("The cycle status changed. Refresh and try again.");
+
+      if (newStatus === CycleStatus.ARCHIVED) {
+        const unapproved = await tx.cohortStudent.count({
+          where: { cycleId: cycle.id, OR: [{ grade: null }, { grade: { isApproved: false } }] },
+        });
+        if (unapproved > 0) throw new Error("Approve every student's grade before archiving the cycle.");
+      }
+      await tx.auditLog.create({
+        data: {
+          tenantId: cycle.tenantId,
+          actorPersonId: authorization?.actor.id,
+          actionType: "PRACTICUM_CYCLE_STATUS_CHANGED",
+          resourceType: "PracticumCycle",
+          resourceId: cycle.id,
+          beforeState: { status: cycle.status },
+          afterState: { status: newStatus },
+        },
+      });
+      return tx.practicumCycle.findUniqueOrThrow({ where: { id: cycle.id } });
     });
 
     revalidatePath(`/${tenantSlug}/admin/cycles`);
     revalidatePath(`/${tenantSlug}/admin`);
+    revalidatePath(`/${tenantSlug}`, "layout");
     return { success: true, cycle: updated };
   } catch (error: any) {
     console.error("Failed to update cycle status:", error);

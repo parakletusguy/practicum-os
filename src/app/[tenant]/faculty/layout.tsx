@@ -1,8 +1,6 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import { ReactNode } from "react";
-import { notFound, redirect } from "next/navigation";
-import { SystemRole } from "@prisma/client";
 import { db } from "@/lib/db";
-import { requireTenantRole } from "@/lib/authz";
 import { isDemoMode } from "@/lib/runtime-mode";
 import { FacultySidebar } from "@/components/layout/FacultySidebar";
 import { FacultyHeader } from "@/components/layout/FacultyHeader";
@@ -21,35 +19,14 @@ export default async function FacultySupervisorLayout(
   } = props;
 
   const demoMode = isDemoMode();
-  let actorId: string | null = null;
-  let tenantId: string | null = null;
-  let tenantName = "Practicum Institution";
+  const { actor, tenant } = await requirePortalAccess(params.tenant, "faculty");
+  const tenantName = tenant.name;
 
-  if (demoMode) {
-    const tenant = await db.organisation.findUnique({ where: { slug: params.tenant } });
-    if (!tenant) notFound();
-    tenantId = tenant.id;
-    tenantName = tenant.name;
-  } else {
-    try {
-      const { actor, tenant } = await requireTenantRole(params.tenant, [
-        SystemRole.ACADEMIC_SUPERVISOR,
-      ]);
-      actorId = actor.id;
-      tenantId = tenant.id;
-      tenantName = tenant.name;
-    } catch {
-      redirect("/auth/login?error=access");
-    }
-  }
-
-  const faculty = await db.person.findFirst({
-    where: demoMode
-      ? { roleMemberships: { some: { role: "ACADEMIC_SUPERVISOR" } } }
-      : { id: actorId! },
+  const faculty = await db.person.findUnique({
+    where: { id: actor.id },
     include: {
       academicSupervisedAllocations: {
-        where: { cycle: { tenantId: tenantId! } },
+        where: { cycle: { tenantId: tenant.id } },
         include: { earlyWarningAlerts: { where: { isResolved: false } } },
       },
     },

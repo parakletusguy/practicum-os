@@ -3,9 +3,10 @@
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { VerificationStatus, VisitType, AlertSeverity, AlertType } from "@prisma/client";
-import { AuthorizationError, requireAuthenticatedActor, requireTenantRole } from "@/lib/authz";
+import { AuthorizationError, requireTenantRole } from "@/lib/authz";
 import { isDemoMode } from "@/lib/runtime-mode";
 import { queueInitialAlertNotification } from "@/modules/notifications/email-delivery";
+import { verifyPracticeEventAction as verifyLogbookEntry } from "@/modules/logbook/actions";
 import { scanEarlyWarningsForCycle } from "./early-warning";
 
 // ==========================================
@@ -13,84 +14,12 @@ import { scanEarlyWarningsForCycle } from "./early-warning";
 // ==========================================
 
 export async function verifyPracticeEventAction(formData: FormData) {
-  try {
-    const eventId = formData.get("eventId") as string;
-    const status = formData.get("status") as VerificationStatus;
-    const supervisorNotes = formData.get("supervisorNotes") as string;
-    const tenantSlug = formData.get("tenantSlug") as string;
-
-    if (!eventId || !status || !Object.values(VerificationStatus).includes(status)) {
-      return { success: false, error: "Missing required parameters for verification." };
-    }
-
-    const event = await prisma.practiceEvent.findUnique({
-      where: { id: eventId },
-      include: {
-        allocation: {
-          include: {
-            cycle: true,
-            studentPerson: true,
-          },
-        },
-      },
-    });
-
-    if (!event) {
-      return { success: false, error: "Practice event not found." };
-    }
-    if (event.verificationStatus !== VerificationStatus.PENDING) {
-      return { success: false, error: "Only pending practice events can be verified or queried." };
-    }
-
-    const tenant = await prisma.organisation.findUnique({ where: { slug: tenantSlug } });
-    if (!tenant || event.allocation.cycle.tenantId !== tenant.id) {
-      return { success: false, error: "Practice event not found for this institution." };
-    }
-    if (!isDemoMode()) {
-      const actor = await requireAuthenticatedActor();
-      if (event.allocation.fieldSupervisorId !== actor.id) {
-        throw new AuthorizationError("Only the assigned field supervisor may verify this event.");
-      }
-    }
-
-    const updatedEvent = await prisma.practiceEvent.update({
-      where: { id: eventId },
-      data: {
-        verificationStatus: status,
-        supervisorNotes: supervisorNotes || null,
-        verifiedAt: status === "VERIFIED" ? new Date() : null,
-      },
-    });
-
-    // Immutable Audit Log
-    if (tenant) {
-      await prisma.auditLog.create({
-        data: {
-          tenantId: tenant.id,
-          actorPersonId: event.allocation.fieldSupervisorId,
-          actionType: `EVENT_${status}`,
-          resourceType: "PracticeEvent",
-          resourceId: eventId,
-          beforeState: { status: event.verificationStatus, notes: event.supervisorNotes },
-          afterState: { status, supervisorNotes },
-        },
-      });
-    }
-
-    revalidatePath(`/${tenantSlug}/field`);
-    revalidatePath(`/${tenantSlug}/field/verifications`);
-    revalidatePath(`/${tenantSlug}/student/logbook`);
-    revalidatePath(`/${tenantSlug}/student/dna`);
-
-    return {
-      success: true,
-      message: `Practice event updated to ${status}.`,
-      event: updatedEvent,
-    };
-  } catch (error: any) {
-    console.error("verifyPracticeEventAction error:", error);
-    return { success: false, error: error.message || "Failed to update verification status." };
-  }
+  return verifyLogbookEntry({
+    eventId: String(formData.get("eventId") || ""),
+    tenantSlug: String(formData.get("tenantSlug") || ""),
+    status: formData.get("status") as VerificationStatus,
+    supervisorNotes: String(formData.get("supervisorNotes") || ""),
+  });
 }
 
 // ==========================================
@@ -116,14 +45,14 @@ export async function createSupervisionVisitAction(formData: FormData) {
     }
 
     const allocation = await prisma.placementAllocation.findFirst({
-      where: { id: allocationId, cycle: { tenant: { slug: tenantSlug } } },
+      where: { id: allocationId, status: "ACTIVE", cycle: { tenant: { slug: tenantSlug }, status: { in: ["ACTIVE", "ASSESSMENT"] } } },
       select: { academicSupervisorId: true },
     });
     if (!allocation) {
       return { success: false, error: "Placement allocation not found for this institution." };
     }
     if (!isDemoMode()) {
-      const actor = await requireAuthenticatedActor();
+      const { actor } = await requireTenantRole(tenantSlug, ["ACADEMIC_SUPERVISOR"]);
       if (actor.id !== supervisorPersonId || allocation.academicSupervisorId !== actor.id) {
         throw new AuthorizationError("Only the assigned academic supervisor may record this visit.");
       }
@@ -215,14 +144,14 @@ export async function resolveEarlyWarningAlertAction(formData: FormData) {
     }
 
     const existingAlert = await prisma.earlyWarningAlert.findFirst({
-      where: { id: alertId, allocation: { cycle: { tenant: { slug: tenantSlug } } } },
+      where: { id: alertId, isResolved: false, allocation: { cycle: { tenant: { slug: tenantSlug }, status: { not: "ARCHIVED" } } } },
       include: { allocation: { select: { academicSupervisorId: true } } },
     });
     if (!existingAlert) {
       return { success: false, error: "Alert not found for this institution." };
     }
     if (!isDemoMode()) {
-      const actor = await requireAuthenticatedActor();
+      const { actor } = await requireTenantRole(tenantSlug, ["ACADEMIC_SUPERVISOR", "COORDINATOR", "INSTITUTION_ADMIN"]);
       if (existingAlert.allocation.academicSupervisorId !== actor.id) {
         throw new AuthorizationError("Only the assigned academic supervisor may resolve this alert.");
       }

@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import { db } from "@/lib/db";
 import { 
   Users, 
@@ -27,11 +28,7 @@ export default async function CohortPage(props: CohortPageProps) {
   const params = await props.params;
   const tenantSlug = params.tenant;
 
-  const tenant = await db.organisation.findUnique({
-    where: { slug: tenantSlug },
-  });
-
-  if (!tenant) return <div>Tenant not found</div>;
+  const { tenant } = await requirePortalAccess(tenantSlug, "admin");
 
   // Active cycle or selected cycle
   const cycles = await db.practicumCycle.findMany({

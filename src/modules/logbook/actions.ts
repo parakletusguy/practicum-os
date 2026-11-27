@@ -2,10 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { PracticeScopeLevel, VerificationStatus, AlertType, AlertSeverity } from "@prisma/client";
+import { Prisma, PracticeScopeLevel, VerificationStatus, AlertType, AlertSeverity } from "@prisma/client";
 import { evaluateScopeGuard } from "@/modules/scope-guard/policy";
 import { generateEventChecksum, validateClientDeidentification } from "@/modules/evidence-vault/sanitizer";
-import { AuthenticationError, AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
+import { AuthenticationError, AuthorizationError, requireTenantRole } from "@/lib/authz";
+import { fieldSupervisorScope } from "@/lib/record-access";
 import { isDemoMode } from "@/lib/runtime-mode";
 import { queueInitialAlertNotification } from "@/modules/notifications/email-delivery";
 
@@ -23,12 +24,17 @@ export async function createPracticeEventAction(data: {
   competenciesTagged: string[];
   scopeLevel: PracticeScopeLevel;
   evidenceUrl?: string;
+  submissionId?: string;
 }) {
   try {
+    if (data.submissionId && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(data.submissionId)) {
+      return { success: false, error: "Invalid logbook submission reference." };
+    }
     const allocation = await db.placementAllocation.findFirst({
       where: {
         id: data.allocationId,
-        cycle: { tenant: { slug: data.tenantSlug } },
+        status: "ACTIVE",
+        cycle: { tenant: { slug: data.tenantSlug }, status: "ACTIVE" },
       },
       select: { id: true, studentPersonId: true },
     });
@@ -37,7 +43,7 @@ export async function createPracticeEventAction(data: {
     }
 
     if (!isDemoMode()) {
-      const actor = await requireAuthenticatedActor();
+      const { actor } = await requireTenantRole(data.tenantSlug, ["STUDENT"]);
       if (actor.id !== allocation.studentPersonId) {
         throw new AuthorizationError("You may only create practice events for your own placement.");
       }
@@ -51,8 +57,11 @@ export async function createPracticeEventAction(data: {
     // 1. Calculate duration in minutes
     const [startH, startM] = data.startTime.split(":").map(Number);
     const [endH, endM] = data.endTime.split(":").map(Number);
-    let totalMinutes = (endH * 60 + endM) - (startH * 60 + startM);
-    if (totalMinutes <= 0) totalMinutes = 60; // minimum 1 hr fallback
+    const totalMinutes = (endH * 60 + endM) - (startH * 60 + startM);
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(data.startTime) ||
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(data.endTime) || totalMinutes <= 0) {
+      return { success: false, error: "Enter a valid end time later than the start time on the same day." };
+    }
 
     // 2. Validate client de-identification (Anti-PII)
     const deidentResult = validateClientDeidentification(data.clientRef);
@@ -64,15 +73,20 @@ export async function createPracticeEventAction(data: {
     const scopeCheck = evaluateScopeGuard(data.activityTitle, data.category, data.scopeLevel);
 
     if (!scopeCheck.allowed) {
-      const alert = await db.earlyWarningAlert.create({
-        data: {
+      const alertFields = {
           allocationId: allocation.id,
           alertType: AlertType.SCOPE_GUARD_FLAG,
           severity: scopeCheck.violationSeverity === "HIGH" ? AlertSeverity.HIGH : AlertSeverity.MEDIUM,
           title: `ScopeGuard blocked: ${data.activityTitle}`,
           description: `A trainee attempted an activity requiring ${scopeCheck.rule?.allowedScope} as ${data.scopeLevel}. ${scopeCheck.rule?.rationale}`,
-        },
-      });
+      };
+      const alert = data.submissionId
+        ? await db.earlyWarningAlert.upsert({
+          where: { id: data.submissionId, allocationId: allocation.id },
+          create: { id: data.submissionId, ...alertFields },
+          update: {},
+        })
+        : await db.earlyWarningAlert.create({ data: alertFields });
       if (!isDemoMode()) await queueInitialAlertNotification(alert.id);
 
       return {
@@ -94,8 +108,7 @@ export async function createPracticeEventAction(data: {
     });
 
     // 5. Create PracticeEvent record
-    const event = await db.practiceEvent.create({
-      data: {
+    const eventData = {
         allocationId: allocation.id,
         eventDate: new Date(data.eventDate),
         startTime: data.startTime,
@@ -112,8 +125,28 @@ export async function createPracticeEventAction(data: {
         evidenceSanitized: true,
         verificationStatus: VerificationStatus.PENDING,
         tamperChecksum,
-      },
-    });
+    };
+    let event;
+    try {
+      event = await db.practiceEvent.create({
+        data: { ...eventData, id: data.submissionId },
+      });
+    } catch (error) {
+      if (!data.submissionId || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
+      event = await db.practiceEvent.findUnique({
+        where: {
+          id: data.submissionId,
+          allocationId: allocation.id,
+          tamperChecksum,
+          category: data.category,
+          clientRef: deidentResult.sanitizedRef,
+          evidenceUrl: evidencePath || null,
+          scopeLevel: data.scopeLevel,
+          competenciesTagged: { equals: data.competenciesTagged },
+        },
+      });
+      if (!event) return { success: false, error: "This submission reference was already used. Open the logbook to check its status." };
+    }
 
     revalidatePath(`/${data.tenantSlug}/student/logbook`);
     revalidatePath(`/${data.tenantSlug}/student`);
@@ -142,11 +175,20 @@ export async function verifyPracticeEventAction(data: {
   supervisorNotes?: string;
 }) {
   try {
-    if (!Object.values(VerificationStatus).includes(data.status)) {
+    if (data.status === VerificationStatus.PENDING || !Object.values(VerificationStatus).includes(data.status)) {
       return { success: false, error: "Invalid verification status." };
     }
+    const authorization = isDemoMode() ? null : await requireTenantRole(data.tenantSlug, ["FIELD_SUPERVISOR"]);
+    const where = {
+      id: data.eventId,
+      verificationStatus: VerificationStatus.PENDING,
+      allocation: { AND: [
+        { cycle: { tenant: { slug: data.tenantSlug }, status: { in: ["ACTIVE", "ASSESSMENT"] } } },
+        authorization ? fieldSupervisorScope(authorization.actor.id, authorization.tenant.id) : {},
+      ] },
+    } satisfies Prisma.PracticeEventWhereInput;
     const existingEvent = await db.practiceEvent.findFirst({
-      where: { id: data.eventId, allocation: { cycle: { tenant: { slug: data.tenantSlug } } } },
+      where,
       select: {
         id: true,
         verificationStatus: true,
@@ -157,43 +199,40 @@ export async function verifyPracticeEventAction(data: {
     if (!existingEvent) {
       return { success: false, error: "Practice event not found for this institution." };
     }
-    if (existingEvent.verificationStatus !== VerificationStatus.PENDING) {
-      return { success: false, error: "Only pending practice events can be verified or queried." };
-    }
-    let actorPersonId = existingEvent.allocation.fieldSupervisorId;
-    if (!isDemoMode()) {
-      const actor = await requireAuthenticatedActor();
-      if (actor.id !== existingEvent.allocation.fieldSupervisorId) {
-        throw new AuthorizationError("Only the assigned field supervisor may verify this event.");
-      }
-      actorPersonId = actor.id;
-    }
-    const event = await db.practiceEvent.update({
-      where: { id: existingEvent.id },
-      data: {
-        verificationStatus: data.status,
-        supervisorNotes: data.supervisorNotes || null,
-        verifiedAt: data.status === VerificationStatus.VERIFIED ? new Date() : null,
-      },
-    });
-    await db.auditLog.create({
-      data: {
-        tenantId: existingEvent.allocation.cycle.tenantId,
-        actorPersonId,
-        actionType: `PRACTICE_EVENT_${data.status}`,
-        resourceType: "PracticeEvent",
-        resourceId: event.id,
-        beforeState: { status: existingEvent.verificationStatus, supervisorNotes: existingEvent.supervisorNotes },
-        afterState: { status: data.status, supervisorNotes: data.supervisorNotes || null },
-      },
+    const actorPersonId = authorization?.actor.id ?? existingEvent.allocation.fieldSupervisorId;
+    const event = await db.$transaction(async (tx) => {
+      const updated = await tx.practiceEvent.updateMany({
+        where,
+        data: {
+          verificationStatus: data.status,
+          supervisorNotes: data.supervisorNotes || null,
+          verifiedAt: data.status === VerificationStatus.VERIFIED ? new Date() : null,
+        },
+      });
+      if (updated.count !== 1) throw new Error("This event changed. Refresh before verifying.");
+      await tx.auditLog.create({
+        data: {
+          tenantId: existingEvent.allocation.cycle.tenantId,
+          actorPersonId,
+          actionType: `PRACTICE_EVENT_${data.status}`,
+          resourceType: "PracticeEvent",
+          resourceId: existingEvent.id,
+          beforeState: { status: existingEvent.verificationStatus, supervisorNotes: existingEvent.supervisorNotes },
+          afterState: { status: data.status, supervisorNotes: data.supervisorNotes || null },
+        },
+      });
+      return tx.practiceEvent.findUniqueOrThrow({ where: { id: existingEvent.id } });
     });
 
     revalidatePath(`/${data.tenantSlug}/student/logbook`);
     revalidatePath(`/${data.tenantSlug}/student`);
+    revalidatePath(`/${data.tenantSlug}/student/dna`);
+    revalidatePath(`/${data.tenantSlug}/field`);
+    revalidatePath(`/${data.tenantSlug}/field/verifications`);
     revalidatePath(`/${data.tenantSlug}/admin/logbook`);
     revalidatePath(`/${data.tenantSlug}/admin`);
 
-    return { success: true, event };
+    return { success: true, event, message: `Practice event updated to ${data.status}.` };
   } catch (error: any) {
     if (error instanceof AuthenticationError || error instanceof AuthorizationError) {
       return { success: false, error: error.message };

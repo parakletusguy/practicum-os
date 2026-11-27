@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
 import { AllocationStatus, SystemRole } from "@prisma/client";
-import { AuthorizationError, requireAuthenticatedActor, requireTenantRole } from "@/lib/authz";
+import { requireTenantRole } from "@/lib/authz";
 import { isDemoMode } from "@/lib/runtime-mode";
 import { assertEmailDeliveryConfigured } from "@/lib/email/resend";
 import {
@@ -18,8 +18,8 @@ export async function dispatchPostingLettersAction(
 ) {
   try {
     const demoMode = isDemoMode();
-    if (!isDemoMode()) {
-      await requireTenantRole(tenantSlug, [SystemRole.COORDINATOR, SystemRole.INSTITUTION_ADMIN]);
+    const authorization = demoMode ? null : await requireTenantRole(tenantSlug, [SystemRole.COORDINATOR, SystemRole.INSTITUTION_ADMIN]);
+    if (!demoMode) {
       try {
         assertEmailDeliveryConfigured();
       } catch (error) {
@@ -37,7 +37,7 @@ export async function dispatchPostingLettersAction(
     }
     const cycle = await db.practicumCycle.findFirst({
       where: { id: cycleId, tenant: { slug: tenantSlug } },
-      select: { id: true },
+      select: { id: true, academicYear: true },
     });
     if (!cycle) {
       return { success: false, error: "Practicum cycle not found for this institution." };
@@ -46,6 +46,8 @@ export async function dispatchPostingLettersAction(
     const allocationsToPost = await db.placementAllocation.findMany({
       where: {
         cycleId: cycle.id,
+        cycle: { status: { in: ["MATCHING", "ACTIVE"] } },
+        hostOrg: { verificationStatus: "VERIFIED" },
         status: AllocationStatus.APPROVED,
       },
       include: {
@@ -63,11 +65,14 @@ export async function dispatchPostingLettersAction(
     const blocked: string[] = [];
     const now = new Date();
 
-    for (let i = 0; i < allocationsToPost.length; i++) {
-      const alloc = allocationsToPost[i];
+    for (const alloc of allocationsToPost) {
+      if (new Set([alloc.studentPersonId, alloc.academicSupervisorId, alloc.fieldSupervisorId].filter(Boolean)).size !== 3) {
+        blocked.push(`${alloc.studentPerson.firstName} ${alloc.studentPerson.lastName} needs two distinct supervisors before posting.`);
+        continue;
+      }
       const letterRef =
         alloc.postingLetterRef ||
-        `UNILAG/SWK/2026/PL-${String(i + 101).padStart(3, "0")}`;
+        `${tenantSlug.toUpperCase()}/${cycle.academicYear}/PL-${alloc.id}`;
 
       const queue = createPostingEmailDeliveries({
         tenantId: tenant.id,
@@ -83,9 +88,9 @@ export async function dispatchPostingLettersAction(
         continue;
       }
 
-      await db.$transaction(async (tx) => {
-        await tx.placementAllocation.update({
-          where: { id: alloc.id },
+      const posted = await db.$transaction(async (tx) => {
+        const changed = await tx.placementAllocation.updateMany({
+          where: { id: alloc.id, status: AllocationStatus.APPROVED, updatedAt: alloc.updatedAt },
           data: {
             // Issuing a letter is distinct from the student beginning placement.
             status: AllocationStatus.POSTED,
@@ -93,6 +98,7 @@ export async function dispatchPostingLettersAction(
             postedAt: alloc.postedAt || now,
           },
         });
+        if (changed.count !== 1) return false;
         await tx.cohortStudent.update({
           where: { id: alloc.cohortStudentId },
           data: { status: "PLACED" },
@@ -100,20 +106,21 @@ export async function dispatchPostingLettersAction(
         if (!demoMode) {
           await tx.emailDelivery.createMany({ data: queue.queued, skipDuplicates: true });
         }
+        return true;
       });
 
+      if (!posted) continue;
       issued++;
       queuedRecipients += queue.queued.length;
     }
 
-    const actor = !isDemoMode() ? await requireAuthenticatedActor() : null;
     const deliveryRun = !demoMode && queuedRecipients > 0
       ? await processPendingEmailDeliveries(Math.min(queuedRecipients, 25))
       : null;
     await db.auditLog.create({
       data: {
         tenantId: tenant.id,
-        actorPersonId: actor?.id,
+        actorPersonId: authorization?.actor.id,
         actionType: demoMode ? "POSTING_REFERENCES_GENERATED_DEMO" : "POSTING_LETTERS_QUEUED",
         resourceType: "PracticumCycle",
         resourceId: cycle.id,
@@ -149,86 +156,6 @@ export async function dispatchPostingLettersAction(
     };
   } catch (error: any) {
     console.error("Failed to dispatch posting letters:", error);
-    return { success: false, error: error.message };
-  }
-}
-
-export async function acknowledgeLearningContractAction(data: {
-  tenantSlug: string;
-  allocationId: string;
-  studentSignature: string;
-}) {
-  try {
-    if (!data.studentSignature.trim()) {
-      return { success: false, error: "A signature is required to acknowledge the learning contract." };
-    }
-    const allocation = await db.placementAllocation.findUnique({
-      where: { id: data.allocationId },
-      include: { cycle: true },
-    });
-
-    if (!allocation) {
-      return { success: false, error: "Allocation not found" };
-    }
-
-    const tenant = await db.organisation.findUnique({ where: { slug: data.tenantSlug } });
-    if (!tenant || allocation.cycle.tenantId !== tenant.id) {
-      return { success: false, error: "Allocation not found for this institution." };
-    }
-    if (allocation.status !== AllocationStatus.POSTED && allocation.status !== AllocationStatus.ACTIVE) {
-      return { success: false, error: "A learning contract can only be acknowledged after posting." };
-    }
-    const previousAcknowledgement = await db.auditLog.findFirst({
-      where: {
-        tenantId: tenant.id,
-        resourceType: "PlacementAllocation",
-        resourceId: allocation.id,
-        actionType: "LEARNING_CONTRACT_SIGNED",
-      },
-      select: { id: true },
-    });
-    if (previousAcknowledgement) {
-      return { success: false, error: "This learning contract has already been acknowledged." };
-    }
-    let actorPersonId = allocation.studentPersonId;
-    if (!isDemoMode()) {
-      const actor = await requireAuthenticatedActor();
-      if (actor.id !== allocation.studentPersonId) {
-        throw new AuthorizationError("You may only sign your own learning contract.");
-      }
-      actorPersonId = actor.id;
-    }
-
-    // Save learning contract acknowledgment in audit log
-    const signatureHash = createHash("sha256").update(data.studentSignature.trim()).digest("hex");
-    await db.auditLog.create({
-      data: {
-        tenantId: tenant.id,
-        actorPersonId,
-        actionType: "LEARNING_CONTRACT_SIGNED",
-        resourceType: "PlacementAllocation",
-        resourceId: allocation.id,
-        beforeState: {},
-        afterState: {
-          signedAt: new Date(),
-          signatureHash,
-          contractAgreed: true,
-        },
-      },
-    });
-
-    revalidatePath(`/${data.tenantSlug}/student/placement`);
-    revalidatePath(`/${data.tenantSlug}/student/guide`);
-
-    return {
-      success: true,
-      message: "Learning Contract signed and registered with University Field Directorate.",
-    };
-  } catch (error: any) {
-    if (error instanceof AuthorizationError) {
-      return { success: false, error: error.message };
-    }
-    console.error("Contract signature failed:", error);
     return { success: false, error: error.message };
   }
 }

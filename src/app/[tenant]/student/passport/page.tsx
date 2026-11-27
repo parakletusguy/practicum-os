@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { formatDate, formatMinutesToHours } from "@/lib/utils";
@@ -26,11 +27,16 @@ export default async function StudentPassportPage(props: StudentPassportPageProp
   const params = await props.params;
   const tenantSlug = params.tenant;
 
-  const student = await db.person.findFirst({
-    where: { email: "c.eze@student.unilag.edu.ng" },
+  const { actor, tenant } = await requirePortalAccess(tenantSlug, "student");
+  const student = await db.person.findUnique({
+    where: { id: actor.id },
     include: {
       cohortEnrollments: {
+        where: { cycle: { tenantId: tenant.id } },
+        orderBy: { cycle: { createdAt: "desc" } },
+        take: 1,
         include: {
+          grade: { select: { id: true } },
           cycle: {
             include: {
               programme: {
@@ -60,6 +66,10 @@ export default async function StudentPassportPage(props: StudentPassportPageProp
 
   const enrollment = student?.cohortEnrollments[0];
   const cycle = enrollment?.cycle;
+  const issued = enrollment?.grade ? await db.auditLog.findFirst({
+    where: { tenantId: tenant.id, resourceType: "CohortGrade", resourceId: enrollment.grade.id, actionType: "TRANSCRIPT_ISSUED" },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true },
+  }) : null;
   const allocation = enrollment?.allocation;
   const verifiedEvents = allocation?.practiceEvents || [];
 
@@ -83,7 +93,10 @@ export default async function StudentPassportPage(props: StudentPassportPageProp
           </h1>
         </div>
 
-        <PrintButton />
+        <div className="flex items-center gap-2">
+          {issued && <Link href={`/${tenantSlug}/student/transcripts/${issued.id}`} className="rounded-lg border px-3 py-2 text-sm font-semibold text-emerald-800">View issued transcript</Link>}
+          <PrintButton />
+        </div>
       </div>
 
       {/* Official Passport Card Sheet */}
@@ -238,7 +251,7 @@ export default async function StudentPassportPage(props: StudentPassportPageProp
           <div>
             <div className="font-bold text-slate-900">Official PracticumOS Digital Attestation</div>
             <p className="text-[11px] text-slate-500 max-w-md mt-0.5">
-              This passport is a tamper-evident record backed by cryptographic checksums. Issued by the Directorate of Field Education for lifelong professional licensure and career verification.
+              This passport summarises verified practicum activity. An official transcript becomes available after two staff approvals.
             </p>
           </div>
 

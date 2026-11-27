@@ -1,9 +1,7 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import { StudentSidebar } from "@/components/layout/StudentSidebar";
 import { TenantHeader } from "@/components/layout/TenantHeader";
 import { SidebarProvider } from "@/components/layout/SidebarContext";
-import { SystemRole } from "@prisma/client";
-import { redirect } from "next/navigation";
-import { requireTenantRole } from "@/lib/authz";
 import { isDemoMode } from "@/lib/runtime-mode";
 
 interface StudentLayoutProps {
@@ -21,16 +19,8 @@ export default async function StudentLayout(props: StudentLayoutProps) {
   } = props;
 
   const tenantSlug = params.tenant;
-  let userName = "Chukwuemeka Eze";
-
-  if (!isDemoMode()) {
-    try {
-      const { actor } = await requireTenantRole(tenantSlug, [SystemRole.STUDENT]);
-      userName = `${actor.firstName} ${actor.lastName}`;
-    } catch {
-      redirect("/auth/login?error=access");
-    }
-  }
+  const { actor } = await requirePortalAccess(tenantSlug, "student");
+  const userName = [actor.firstName, actor.lastName].join(" ");
 
   return (
     <SidebarProvider>

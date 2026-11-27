@@ -1,3 +1,4 @@
+import { requirePortalAccess } from "@/lib/portal-access";
 import { db } from "@/lib/db";
 import { 
   Shuffle, 
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { MatchingWorkspaceClient } from "./matching-workspace-client";
+import { ManualPlacementForm } from "./manual-placement-form";
 
 interface MatchingPageProps {
   params: Promise<{
@@ -30,11 +32,7 @@ export default async function MatchingPage(props: MatchingPageProps) {
   const params = await props.params;
   const tenantSlug = params.tenant;
 
-  const tenant = await db.organisation.findUnique({
-    where: { slug: tenantSlug },
-  });
-
-  if (!tenant) return <div>Tenant not found</div>;
+  const { tenant } = await requirePortalAccess(tenantSlug, "admin");
 
   const cycles = await db.practicumCycle.findMany({
     where: { tenantId: tenant.id },
@@ -76,6 +74,20 @@ export default async function MatchingPage(props: MatchingPageProps) {
   const unmatchedStudents = students.filter((s) => !s.allocation);
   const proposedAllocations = students.filter((s) => s.allocation?.status === "PROPOSED");
   const approvedAllocations = students.filter((s) => s.allocation && s.allocation.status !== "PROPOSED");
+  const isMatching = currentCycle?.status === "MATCHING";
+  const accreditedOffers = offers.filter((offer) => offer.status === "CONFIRMED" && offer.hostOrg.verificationStatus === "VERIFIED");
+  const supervisorMemberships = isMatching ? await db.orgMembership.findMany({
+    where: {
+      status: "ACTIVE",
+      OR: [
+        { organisationId: tenant.id, role: "ACADEMIC_SUPERVISOR" },
+        { organisationId: { in: [tenant.id, ...accreditedOffers.map((offer) => offer.hostOrgId)] }, role: "FIELD_SUPERVISOR" },
+      ],
+    },
+    select: { role: true, organisationId: true, person: { select: { id: true, firstName: true, lastName: true } } },
+    orderBy: { person: { lastName: "asc" } },
+  }) : [];
+  const eligibleStudents = students.filter(({ allocation }) => !allocation || ["PROPOSED", "APPROVED"].includes(allocation.status));
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
@@ -111,11 +123,29 @@ export default async function MatchingPage(props: MatchingPageProps) {
           tenantSlug={tenantSlug}
           cycleId={currentCycle.id}
           cycleName={currentCycle.name}
+          isMatching={isMatching}
           offers={offers}
           unmatchedStudents={unmatchedStudents}
           students={students}
           proposedCount={proposedAllocations.length}
           approvedCount={approvedAllocations.length}
+        />
+      )}
+      {currentCycle && isMatching && eligibleStudents.length > 0 && accreditedOffers.length > 0 && (
+        <ManualPlacementForm
+          tenantSlug={tenantSlug}
+          tenantId={tenant.id}
+          cycleId={currentCycle.id}
+          students={eligibleStudents.map(({ id, person }) => ({ id, name: `${person.firstName} ${person.lastName}` }))}
+          offers={accreditedOffers.map(({ id, hostOrg, hostOrgId, availableSlots, practiceAreas }) => ({
+            id, hostOrgId, name: `${hostOrg.name} · ${practiceAreas.join(", ")} · ${availableSlots} free`,
+          }))}
+          faculty={supervisorMemberships.filter(({ role }) => role === "ACADEMIC_SUPERVISOR").map(({ person }) => ({
+            id: person.id, name: `${person.firstName} ${person.lastName}`,
+          }))}
+          field={supervisorMemberships.filter(({ role }) => role === "FIELD_SUPERVISOR").map(({ person, organisationId }) => ({
+            id: person.id, organisationId, name: `${person.firstName} ${person.lastName}`,
+          }))}
         />
       )}
     </div>
