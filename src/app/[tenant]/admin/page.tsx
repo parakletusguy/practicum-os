@@ -1,6 +1,7 @@
 import { requirePortalAccess } from "@/lib/portal-access";
 import Link from "next/link";
 import { db } from "@/lib/db";
+import { isDemoMode } from "@/lib/runtime-mode";
 import { formatDate, formatMinutesToHours } from "@/lib/utils";
 import { 
   Users, 
@@ -13,8 +14,7 @@ import {
   ShieldAlert, 
   Shuffle, 
   MailCheck, 
-  FileSpreadsheet,
-  Award
+  FileSpreadsheet
 } from "lucide-react";
 
 interface AdminDashboardProps {
@@ -28,118 +28,95 @@ export const dynamic = "force-dynamic";
 export default async function AdminDashboard(props: AdminDashboardProps) {
   const params = await props.params;
   const tenantSlug = params.tenant;
-  await requirePortalAccess(tenantSlug, "admin");
+  const { actor, tenant } = await requirePortalAccess(tenantSlug, "admin");
 
-  // 1. Fetch Tenant Organisation
-  const tenant = await db.organisation.findUnique({
-    where: { slug: tenantSlug },
-    include: {
-      departments: {
-        include: {
-          programmes: true,
-        },
-      },
-    },
-  });
-
-  if (!tenant) {
-    return (
-      <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 shadow-sm">
-        <h2 className="text-xl font-bold text-slate-800">Institution Not Found</h2>
-        <p className="text-slate-500 text-sm mt-2">
-          Tenant slug <code className="bg-slate-100 px-2 py-0.5 rounded font-mono">{tenantSlug}</code> does not exist in the database.
-        </p>
-      </div>
-    );
-  }
-
-  // 2. Fetch Active Cycle
   const activeCycle = await db.practicumCycle.findFirst({
     where: {
       tenantId: tenant.id,
       status: "ACTIVE",
     },
-    include: {
-      programme: true,
-      students: {
-        include: {
-          person: true,
-          allocation: {
-            include: {
-              hostOrg: true,
-              fieldSupervisor: true,
-              academicSupervisor: true,
-            },
-          },
-        },
-      },
-      placementOffers: {
-        include: {
-          hostOrg: true,
-        },
-      },
+    orderBy: [{ startDate: "desc" }, { id: "asc" }],
+    select: {
+      id: true, name: true, academicYear: true, requiredHours: true,
+      programme: { select: { name: true } },
+      students: { select: { allocation: { select: { status: true } } } },
+      placementOffers: { select: { totalSlots: true, availableSlots: true } },
     },
   });
+
+  if (!activeCycle) {
+    const [setupCycle, staff, access] = await Promise.all([
+      db.practicumCycle.findFirst({
+        where: { tenantId: tenant.id, status: { not: "ARCHIVED" } },
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        select: { name: true, status: true },
+      }),
+      db.orgMembership.findMany({
+        where: {
+          organisationId: tenant.id, status: "ACTIVE", person: { isActive: true },
+          role: { in: ["INSTITUTION_ADMIN", "COORDINATOR", "ACADEMIC_SUPERVISOR", "FIELD_SUPERVISOR"] },
+        },
+        select: { personId: true },
+        distinct: ["personId"],
+      }),
+      isDemoMode() ? null : db.orgMembership.findFirst({
+        where: { organisationId: tenant.id, personId: actor.id, role: "INSTITUTION_ADMIN", status: "ACTIVE" },
+        select: { id: true },
+      }),
+    ]);
+    const adminPath = "/" + tenantSlug + "/admin";
+    return (
+      <div className="mx-auto max-w-4xl space-y-5">
+        <section className="rounded-2xl bg-slate-900 p-6 text-white sm:p-8">
+          <p className="text-sm font-medium text-emerald-300">{tenant.name}</p>
+          <h1 className="mt-2 text-2xl font-bold sm:text-3xl">{tenantSlug === "rsu" ? "Social Work staff pilot" : "Practicum setup"}</h1>
+          <p className="mt-2 max-w-xl text-sm text-slate-300">Staff can sign in and review their roles before student fieldwork starts.</p>
+        </section>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <section className="space-y-3 rounded-xl border bg-white p-5">
+            <h2 className="font-semibold">Staff access</h2>
+            <p className="text-sm text-slate-700">{staff.length} {staff.length === 1 ? "staff account" : "staff accounts"} enabled</p>
+            {access ? <Link href={adminPath + "/access"} className="inline-flex rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800">Manage staff access</Link>
+              : <p className="text-sm text-slate-600">An institutional administrator can assign staff roles.</p>}
+          </section>
+          <section className="space-y-3 rounded-xl border bg-white p-5">
+            <h2 className="font-semibold">Practicum cycle</h2>
+            <p className="text-sm text-slate-700">{setupCycle ? setupCycle.name + " · " + setupCycle.status.toLowerCase().replaceAll("_", " ") : "No practicum cycle configured yet."}</p>
+            <Link href={adminPath + "/cycles"} className="inline-flex rounded-lg border px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50">{setupCycle ? "Review placement cycles" : "Set up a cycle"}</Link>
+          </section>
+        </div>
+      </div>
+    );
+  }
 
   // 3. Aggregate Metrics
-  const totalStudents = activeCycle?.students.length ?? 0;
-  const placedStudents = activeCycle?.students.filter((s) => s.allocation?.status === "ACTIVE").length ?? 0;
+  const totalStudents = activeCycle.students.length;
+  const placedStudents = activeCycle.students.filter((s) => s.allocation?.status === "ACTIVE").length;
   const placementRate = totalStudents > 0 ? Math.round((placedStudents / totalStudents) * 100) : 0;
 
-  const totalAgencySlots = activeCycle?.placementOffers.reduce((acc, o) => acc + o.totalSlots, 0) ?? 0;
-  const availableSlots = activeCycle?.placementOffers.reduce((acc, o) => acc + o.availableSlots, 0) ?? 0;
+  const totalAgencySlots = activeCycle.placementOffers.reduce((acc, o) => acc + o.totalSlots, 0);
+  const availableSlots = activeCycle.placementOffers.reduce((acc, o) => acc + o.availableSlots, 0);
 
-  // 4. Fetch Active Early Warning Alerts
-  const activeAlerts = await db.earlyWarningAlert.findMany({
-    where: {
-      allocation: {
-        cycleId: activeCycle?.id,
-      },
-      isResolved: false,
-    },
-    include: {
-      allocation: {
-        include: {
-          studentPerson: true,
-          hostOrg: true,
-        },
-      },
-    },
-    take: 5,
-  });
-
-  // 5. Fetch Recent Practice Events
-  const recentEvents = await db.practiceEvent.findMany({
-    where: {
-      allocation: {
-        cycleId: activeCycle?.id,
-      },
-    },
-    include: {
-      allocation: {
-        include: {
-          studentPerson: true,
-          hostOrg: true,
-          fieldSupervisor: true,
-        },
-      },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-    take: 5,
-  });
-
-  // Total verified minutes logged in cycle
-  const totalVerifiedMinutes = await db.practiceEvent.aggregate({
-    where: {
-      allocation: { cycleId: activeCycle?.id },
-      verificationStatus: "VERIFIED",
-    },
-    _sum: {
-      verifiedMinutes: true,
-    },
-  });
+  const allocationScope = { cycleId: activeCycle.id, cycle: { tenantId: tenant.id } };
+  const verifiedEventScope = { allocation: allocationScope, verificationStatus: "VERIFIED" } as const;
+  const [activeAlerts, recentEvents, totalVerifiedMinutes] = await Promise.all([
+    db.earlyWarningAlert.findMany({
+      where: { allocation: allocationScope, isResolved: false },
+      include: { allocation: { include: { studentPerson: true, hostOrg: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+    db.practiceEvent.findMany({
+      where: verifiedEventScope,
+      include: { allocation: { include: { studentPerson: true, hostOrg: true, fieldSupervisor: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+    db.practiceEvent.aggregate({
+      where: verifiedEventScope,
+      _sum: { verifiedMinutes: true },
+    }),
+  ]);
 
   const verifiedHoursFormatted = formatMinutesToHours(totalVerifiedMinutes._sum.verifiedMinutes ?? 0);
 
@@ -153,10 +130,10 @@ export default async function AdminDashboard(props: AdminDashboardProps) {
             Active Placement Cycle
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-            {activeCycle?.name ?? "Placement Management Workspace"}
+            {activeCycle.name}
           </h1>
           <p className="text-slate-300 text-xs sm:text-sm mt-1">
-            {activeCycle?.programme?.name ?? "Field Education"} • {activeCycle?.academicYear} • Target: {activeCycle?.requiredHours} Hours
+            {activeCycle.programme?.name ?? "Field Education"} • {activeCycle.academicYear} • Target: {activeCycle.requiredHours} Hours
           </p>
         </div>
 
@@ -255,7 +232,7 @@ export default async function AdminDashboard(props: AdminDashboardProps) {
           <div className="mt-4">
             <div className="text-3xl font-extrabold text-amber-600">{activeAlerts.length}</div>
             <div className="text-xs text-slate-500 mt-1">
-              {activeAlerts.length > 0 ? "Requires Faculty Guidance" : "All Students on Track"}
+              {activeAlerts.length > 0 ? "Requires Faculty Guidance" : "No open alerts"}
             </div>
           </div>
         </div>
@@ -280,7 +257,7 @@ export default async function AdminDashboard(props: AdminDashboardProps) {
 
             {activeAlerts.length === 0 ? (
               <p className="text-xs text-slate-500 py-6 text-center">
-                No active student alerts. Everyone is progressing smoothly.
+                No open student alerts for this cycle.
               </p>
             ) : (
               <div className="space-y-3">
@@ -370,6 +347,7 @@ export default async function AdminDashboard(props: AdminDashboardProps) {
               </Link>
             </div>
 
+            {recentEvents.length === 0 && <p className="py-4 text-sm text-slate-600">No verified activities for this cycle yet.</p>}
             <div className="divide-y divide-slate-100">
               {recentEvents.map((event) => (
                 <div key={event.id} className="py-4 first:pt-0 last:pb-0">
@@ -402,7 +380,7 @@ export default async function AdminDashboard(props: AdminDashboardProps) {
                     </div>
                   </div>
 
-                  {/* Competency tags & Verification status */}
+                  {/* Competencies and verifier */}
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-50">
                     <div className="flex flex-wrap gap-1.5">
                       {event.competenciesTagged.map((tag, i) => (
@@ -416,14 +394,10 @@ export default async function AdminDashboard(props: AdminDashboardProps) {
                     </div>
 
                     <div className="flex items-center gap-1 text-[11px] font-semibold">
-                      {event.verificationStatus === "VERIFIED" ? (
-                        <span className="text-emerald-700 flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Verified by {event.allocation.fieldSupervisor?.firstName ?? "Supervisor"}
-                        </span>
-                      ) : (
-                        <span className="text-amber-600">Pending Review</span>
-                      )}
+                      <span className="text-emerald-700 flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Verified by {event.allocation.fieldSupervisor?.firstName ?? "Supervisor"}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -431,42 +405,6 @@ export default async function AdminDashboard(props: AdminDashboardProps) {
             </div>
           </div>
 
-          {/* Quick Practicum Workflow Tracker */}
-          <div className="bg-slate-900 text-white rounded-2xl p-5 sm:p-6 shadow-sm">
-            <h3 className="text-sm font-bold tracking-tight text-white mb-2">
-              Placement Cycle Progress
-            </h3>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs text-slate-400 mb-2">
-              <span>Phase 3: Active Fieldwork & Hours Verification</span>
-              <span className="text-emerald-400 font-bold">52% Completed</span>
-            </div>
-            <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full w-[52%]" />
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 text-xs">
-              <div className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60">
-                <div className="text-[10px] text-slate-400 uppercase">Phase 1</div>
-                <div className="font-semibold text-emerald-400 mt-0.5">Enrollment</div>
-                <div className="text-[10px] text-slate-400">Completed</div>
-              </div>
-              <div className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60">
-                <div className="text-[10px] text-slate-400 uppercase">Phase 2</div>
-                <div className="font-semibold text-emerald-400 mt-0.5">Assignments</div>
-                <div className="text-[10px] text-slate-400">Completed</div>
-              </div>
-              <div className="p-2.5 rounded-xl bg-slate-800/80 border border-emerald-500/40">
-                <div className="text-[10px] text-emerald-400 uppercase font-bold">Phase 3 (Active)</div>
-                <div className="font-semibold text-white mt-0.5">Fieldwork</div>
-                <div className="text-[10px] text-emerald-300">In Progress</div>
-              </div>
-              <div className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60">
-                <div className="text-[10px] text-slate-400 uppercase">Phase 4</div>
-                <div className="font-semibold text-slate-400 mt-0.5">Final Grades</div>
-                <div className="text-[10px] text-slate-500">Upcoming</div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>

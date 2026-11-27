@@ -102,7 +102,6 @@ export function TenantSidebar({ tenantSlug, tenantName, canManageAccess }: Tenan
           name: "Student Alerts",
           href: `/${tenantSlug}/admin/alerts`,
           icon: AlertTriangle,
-          badge: "1 Alert",
         },
       ],
     },
@@ -227,13 +226,6 @@ export function TenantSidebar({ tenantSlug, tenantName, canManageAccess }: Tenan
                         <span className="truncate">{item.name}</span>
                       </div>
 
-                      {item.badge ? (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                          {item.badge}
-                        </span>
-                      ) : isActive ? (
-                        <ChevronRight className="w-3.5 h-3.5 text-emerald-400/80" />
-                      ) : null}
                     </Link>
                   );
                 })}
