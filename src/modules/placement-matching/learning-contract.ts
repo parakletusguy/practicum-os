@@ -1,9 +1,11 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { fieldSupervisorScope } from "@/lib/record-access";
+import { learningContractVersion } from "./contract-version";
+
+export const contractAmendmentAction = "LEARNING_CONTRACT_AMENDED";
 
 export const contractRoles = ["student", "field", "faculty"] as const;
 export type ContractRole = typeof contractRoles[number];
@@ -16,17 +18,17 @@ export const contractRoleLabels: Record<ContractRole, string> = {
 export async function getLearningContract(
   tenantId: string,
   allocationId: string,
-  role: ContractRole,
+  role: ContractRole | "admin",
   actorId: string,
   client: Pick<Prisma.TransactionClient, "placementAllocation" | "auditLog"> = db,
 ) {
   const scope = role === "field" ? fieldSupervisorScope(actorId, tenantId)
-    : role === "faculty" ? { academicSupervisorId: actorId } : { studentPersonId: actorId };
+    : role === "faculty" ? { academicSupervisorId: actorId } : role === "student" ? { studentPersonId: actorId } : {};
   const allocation = await client.placementAllocation.findFirst({
     where: { AND: [{ id: allocationId, cycle: { tenantId } }, scope] },
     select: {
       id: true, status: true, studentPersonId: true, fieldSupervisorId: true, academicSupervisorId: true,
-      hostOrgId: true, hostOrg: { select: { name: true } }, postedAt: true,
+      hostOrgId: true, hostOrg: { select: { name: true } }, postedAt: true, startedAt: true, updatedAt: true,
       studentPerson: { select: { firstName: true, lastName: true } },
       cycle: { select: { name: true, requiredHours: true, status: true } },
     },
@@ -39,9 +41,23 @@ export async function getLearningContract(
     "The student must follow ScopeGuard limits. The field supervisor must provide the required level of supervision and raise any safety concerns with faculty.",
     `The student must record actual practice hours toward the ${allocation.cycle.requiredHours}-hour requirement. The field supervisor verifies hours and the faculty supervisor oversees academic progress.`,
   ];
-  const version = createHash("sha256").update(JSON.stringify({
+  const revisions = await client.auditLog.findMany({
+    where: { tenantId, resourceType: "PlacementAllocation", resourceId: allocation.id, actionType: contractAmendmentAction },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: { id: true, createdAt: true, afterState: true },
+    take: role === "admin" ? undefined : 1,
+  });
+  const amendments = revisions.flatMap(({ id, createdAt, afterState }) =>
+    afterState && typeof afterState === "object" && !Array.isArray(afterState) &&
+      typeof afterState.addendum === "string" && typeof afterState.reason === "string"
+      ? [{ id, createdAt, addendum: afterState.addendum, reason: afterState.reason }]
+      : [],
+  );
+  const amendment = amendments[0];
+  if (amendment) terms.push(amendment.addendum);
+  const version = learningContractVersion({
     terms, signers, host: allocation.hostOrgId, postedAt: allocation.postedAt,
-  })).digest("hex");
+  }, amendment?.id);
   const actionType = "LEARNING_CONTRACT_SIGNED";
   const logs = await client.auditLog.findMany({
     where: {
@@ -54,8 +70,10 @@ export async function getLearningContract(
     log.actorPersonId === signers[party] && log.afterState !== null &&
     typeof log.afterState === "object" && !Array.isArray(log.afterState) && log.afterState.role === party,
   ));
-  const canSign = new Set(Object.values(signers).filter(Boolean)).size === contractRoles.length &&
-    allocation.status === "POSTED" && (allocation.cycle.status === "MATCHING" || allocation.cycle.status === "ACTIVE");
+  const ready = new Set(Object.values(signers).filter(Boolean)).size === contractRoles.length &&
+    (allocation.cycle.status === "MATCHING" || allocation.cycle.status === "ACTIVE");
+  const canSign = ready && allocation.status === "POSTED";
+  const canAmend = ready && (allocation.status === "POSTED" || allocation.status === "ACTIVE");
 
-  return { allocation, version, terms, signedRoles, canSign, actionType };
+  return { allocation, version, terms, signedRoles, canSign, canAmend, amendments, actionType };
 }

@@ -15,6 +15,7 @@ import {
   Layers
 } from "lucide-react";
 import { LogbookModalClient } from "./logbook-modal-client";
+import { OfflineLogbook } from "@/components/offline-logbook";
 
 interface StudentLogbookPageProps {
   params: Promise<{
@@ -54,6 +55,8 @@ export default async function StudentLogbookPage(props: StudentLogbookPageProps)
 
   const enrollment = student?.cohortEnrollments[0];
   const allocation = enrollment?.allocation;
+  const canSubmit = allocation?.status === "ACTIVE" && enrollment?.cycle.status === "ACTIVE";
+  const queueScope = allocation ? `${tenant.id}/${actor.id}/${allocation.id}` : "";
   const events = allocation?.practiceEvents || [];
 
   const verifiedMinutes = events
@@ -86,11 +89,13 @@ export default async function StudentLogbookPage(props: StudentLogbookPageProps)
           <LogbookModalClient
             tenantSlug={tenantSlug}
             allocationId={allocation.id}
-            queueScope={`${tenant.id}/${actor.id}/${allocation.id}`}
-            canSubmit={allocation.status === "ACTIVE" && enrollment?.cycle.status === "ACTIVE"}
+            queueScope={queueScope}
+            canSubmit={canSubmit}
           />
         )}
       </div>
+
+      {allocation && <OfflineLogbook key={queueScope} tenantSlug={tenantSlug} allocationId={allocation.id} scope={queueScope} canSubmit={canSubmit} />}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

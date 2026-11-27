@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { AgencyModalClient } from "./agency-modal-client";
 import { AgencyCapacityControls } from "./agency-capacity-controls";
+import { accreditationDueDate, renewalLabel } from "@/modules/placement-matching/accreditation";
+import Link from "next/link";
 
 interface AgenciesPageProps {
   params: Promise<{
@@ -217,6 +219,10 @@ export default async function AgenciesPage(props: AgenciesPageProps) {
 
               {/* Footer status */}
               <AgencyCapacityControls tenantSlug={tenantSlug} agencyId={agency.id} status={agency.verificationStatus} cycles={capacityCycles} />
+              <div className="mt-3 space-y-1">
+                <p className="text-sm text-slate-600">{renewalLabel(accreditationDueDate(agency.settings))}</p>
+                <Link href={`/${tenantSlug}/admin/agencies/${agency.id}/accreditation`} className="text-sm font-semibold text-emerald-800 underline">Review accreditation</Link>
+              </div>
               <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs">
                 <span className="text-slate-500 font-medium">
                   Currently Placed: <strong className="text-slate-900">{currentPlacedStudents} Trainees</strong>

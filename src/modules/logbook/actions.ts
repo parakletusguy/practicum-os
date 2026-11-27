@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { Prisma, PracticeScopeLevel, VerificationStatus, AlertType, AlertSeverity } from "@prisma/client";
 import { evaluateScopeGuard } from "@/modules/scope-guard/policy";
 import { generateEventChecksum, validateClientDeidentification } from "@/modules/evidence-vault/sanitizer";
+import { isEvidencePathForAllocation } from "@/modules/evidence-vault/evidence-path";
 import { AuthenticationError, AuthorizationError, requireTenantRole } from "@/lib/authz";
 import { fieldSupervisorScope } from "@/lib/record-access";
 import { isDemoMode } from "@/lib/runtime-mode";
@@ -50,7 +51,7 @@ export async function createPracticeEventAction(data: {
     }
 
     const evidencePath = data.evidenceUrl?.trim();
-    if (evidencePath && !evidencePath.startsWith(`${allocation.id}/`)) {
+    if (evidencePath && !isEvidencePathForAllocation(evidencePath, allocation.id)) {
       return { success: false, error: "Evidence attachment is not valid for this placement." };
     }
 

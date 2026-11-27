@@ -5,6 +5,7 @@ import { AuthenticationError, requireAuthenticatedActor } from "@/lib/authz";
 import { DEMO_PERSONAS } from "@/lib/auth-personas";
 import { allocationRecordScope } from "@/lib/record-access";
 import { getSupabasePublicConfig, isDemoMode } from "@/lib/runtime-mode";
+import { isEvidencePathForAllocation } from "@/modules/evidence-vault/evidence-path";
 
 export async function GET(request: NextRequest, props: { params: Promise<{ eventId: string }> }) {
   const params = await props.params;
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ event
     if (!event?.evidenceUrl) {
       return NextResponse.json({ error: "Evidence was not found." }, { status: 404 });
     }
-    if (event.evidenceUrl.includes("://") || !event.evidenceUrl.startsWith(`${event.allocationId}/`)) {
+    if (!isEvidencePathForAllocation(event.evidenceUrl, event.allocationId)) {
       return NextResponse.json(
         { error: "This legacy evidence reference must be migrated before it can be accessed." },
         { status: 410 }

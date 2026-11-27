@@ -32,6 +32,10 @@ For authenticated checks, set `PRACTICUM_BROWSER_FIXTURES` to a local JSON file 
 
 Keep the storage states outside version control since they contain test session credentials. Prepare the second tenant so it has records but grants no membership to the test actors in `sessions`.
 
+## Offline logbook browser check
+
+Run `node scripts/verify_offline_logbook.mjs` with the same base URL, browser channel, and Playwright module settings. The smoke test uses synthetic data in a fresh browser profile. It closes and reopens the logbook while disconnected, checks passphrase protection and encrypted draft persistence, and checks that the authenticated logbook page is absent from the cache. Reconnect and submit through the student portal in staging to verify authenticated synchronization.
+
 ## Release checklist
 
 - [ ] Claims reviewed against implementation and tests

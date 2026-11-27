@@ -88,6 +88,7 @@ export default async function CohortGradingPage(
         cycleId={cycle.id}
         cycleName={cycle.name}
         formula={formula.components}
+        gradeBands={Object.entries(formula.gradeScale).sort((a, b) => b[1][0] - a[1][0]).map(([letter]) => letter)}
         tenantSlug={params.tenant}
       />
     </div>

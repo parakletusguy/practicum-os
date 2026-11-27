@@ -169,6 +169,7 @@ export default async function CyclesPage(props: CyclesPageProps) {
                 </Link>
               </div>
               {nextStatus && <CycleStatusControl tenantSlug={tenantSlug} cycleId={cycle.id} nextStatus={nextStatus} />}
+              <Link href={`/${tenantSlug}/admin/cycles/${cycle.id}/grading`} className="mt-3 text-sm font-semibold text-emerald-800 underline">Grading settings</Link>
             </div>
           );
         })}

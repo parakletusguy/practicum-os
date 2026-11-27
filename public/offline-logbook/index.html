@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Offline logbook · PracticumOS</title>
+  <link rel="stylesheet" href="/offline-logbook/styles.css">
+  <script type="module" src="/offline-logbook/screen.mjs"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="brand">PracticumOS</p>
+      <h1>Offline logbook</h1>
+      <p>Record fieldwork on this device. When you reconnect, sign in and sync from your student logbook.</p>
+      <a id="return-link" href="/" hidden>Return to online logbook</a>
+    </header>
+    <p id="status" role="status" aria-live="polite"></p>
+    <form id="unlock" class="panel" method="post" hidden>
+      <h2>Unlock your notebook</h2>
+      <label id="notebook-picker">Notebook<select id="notebook"></select></label>
+      <label>Passphrase<input id="passphrase" type="password" autocomplete="current-password" required maxlength="200"></label>
+      <button type="submit">Unlock notebook</button>
+    </form>
+    <section id="workspace" hidden>
+      <div class="toolbar"><h2>Saved entries</h2><button type="button" id="lock" class="secondary">Lock notebook</button></div>
+      <ul id="drafts" class="entries"></ul>
+      <form id="capture" class="panel" method="post">
+        <h2 id="editor-heading">New entry</h2>
+        <div class="grid">
+          <label>Activity date<input name="eventDate" type="date" required></label>
+          <label>Activity type<select name="category">
+            <option value="DIRECT_CLIENT">Direct client meeting</option>
+            <option value="CASE_CONFERENCE">Case conference</option>
+            <option value="HOME_VISIT">Home visit</option>
+            <option value="COMMUNITY_OUTREACH">Community outreach</option>
+            <option value="ADMIN">Documentation</option>
+          </select></label>
+          <label>Start time<input name="startTime" type="time" required></label>
+          <label>End time<input name="endTime" type="time" required></label>
+        </div>
+        <label>Supervision<select name="scopeLevel">
+          <option value="CO_PRACTICE">Co-practice</option>
+          <option value="DIRECT_SUPERVISION">Direct observation</option>
+          <option value="INDEPENDENT">Independent</option>
+        </select></label>
+        <label>Anonymous case code <span>(optional)</span><input name="clientRef" placeholder="CASE-ANON-1234" maxlength="60"></label>
+        <label>Activity title<input name="activityTitle" required maxlength="200"></label>
+        <label>Activity description<textarea name="activityDescription" rows="3" required maxlength="4000"></textarea></label>
+        <label>Critical reflection<textarea name="criticalReflection" rows="3" required maxlength="4000"></textarea></label>
+        <fieldset>
+          <legend>Competencies</legend>
+          <div class="checklist">
+            <label><input type="checkbox" name="competenciesTagged" value="Ethical & Professional Conduct" checked> Ethical and professional conduct</label>
+            <label><input type="checkbox" name="competenciesTagged" value="Advancing Human Rights & Social Justice"> Human rights and social justice</label>
+            <label><input type="checkbox" name="competenciesTagged" value="Inclusive & Anti-Oppressive Practice"> Inclusive practice</label>
+            <label><input type="checkbox" name="competenciesTagged" value="Evidence-Informed Practice"> Evidence-informed practice</label>
+            <label><input type="checkbox" name="competenciesTagged" value="Social Policy & Advocacy"> Social policy and advocacy</label>
+            <label><input type="checkbox" name="competenciesTagged" value="Client Engagement & Building Trust"> Client engagement</label>
+            <label><input type="checkbox" name="competenciesTagged" value="Comprehensive Needs Assessment"> Needs assessment</label>
+            <label><input type="checkbox" name="competenciesTagged" value="Collaborative Interventions"> Collaborative interventions</label>
+            <label><input type="checkbox" name="competenciesTagged" value="Evaluating Client Outcomes"> Evaluating outcomes</label>
+          </div>
+        </fieldset>
+        <p class="hint">Keep client names and contact details out of the entry. Add files after reconnecting.</p>
+        <div class="toolbar"><button type="submit">Save on this device</button><button type="button" id="cancel-edit" class="secondary" hidden>Cancel edit</button></div>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

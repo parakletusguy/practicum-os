@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { createPlacementOfferAction, reviewPartnerAgencyAction } from "@/modules/placement-matching/agency-actions";
+import { createPlacementOfferAction } from "@/modules/placement-matching/agency-actions";
 
 export function AgencyCapacityControls({ tenantSlug, agencyId, status, cycles }: {
   tenantSlug: string;
@@ -14,14 +14,6 @@ export function AgencyCapacityControls({ tenantSlug, agencyId, status, cycles }:
   const accredited = status === "VERIFIED";
   const buttonStyle = "rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50";
   const inputStyle = "block w-full rounded-lg border border-slate-300 p-2";
-
-  function review() {
-    setMessage("");
-    startTransition(async () => {
-      const result = await reviewPartnerAgencyAction(tenantSlug, agencyId, accredited ? "SUSPENDED" : "VERIFIED");
-      setMessage(result.success ? "Accreditation updated." : result.error || "Accreditation could not be updated.");
-    });
-  }
 
   function addCapacity(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -41,9 +33,6 @@ export function AgencyCapacityControls({ tenantSlug, agencyId, status, cycles }:
 
   return (
     <div className="mt-4 space-y-3">
-      <button type="button" onClick={review} disabled={pending} className={buttonStyle}>
-        {accredited ? "Suspend accreditation" : "Approve accreditation"}
-      </button>
       {accredited && cycles.length > 0 && (
         <details>
           <summary className="cursor-pointer text-sm font-semibold text-emerald-800">Add placement capacity</summary>

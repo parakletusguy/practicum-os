@@ -7,8 +7,10 @@ import { db } from "@/lib/db";
 import { sanitizeTextForPII } from "@/modules/needs-matching/types";
 import { reportStages, currentPracticeReports } from "./practice-report";
 import { hasAuthorizedGradeCorrection } from "./transcript";
+import { assemblePortfolioEvidence } from "./portfolio-evidence";
 
 const content = z.string().trim().min(20).max(12000);
+const selectedIds = z.array(z.string().min(1).max(100)).max(500);
 const reportInput = z.discriminatedUnion("role", [
   z.object({ role: z.literal("student"), stage: z.enum(reportStages), body: content }),
   z.object({ role: z.literal("faculty"), submissionId: z.string().min(1), score: z.string().trim().min(1).pipe(z.coerce.number().min(0).max(100)), feedback: content }),
@@ -18,6 +20,11 @@ export async function savePracticeReportAction(tenantSlug: string, allocationId:
   const input = reportInput.safeParse(Object.fromEntries(form));
   if (!input.success) return { success: false, message: "Enter at least 20 characters and a score between 0 and 100 when reviewing." };
   const data = input.data;
+  const selections = data.role === "student" && data.stage === "FINAL"
+    ? z.object({ entryIds: selectedIds, attachmentIds: selectedIds }).safeParse({
+      entryIds: form.getAll("entryId"), attachmentIds: form.getAll("attachmentId"),
+    }) : null;
+  if (selections && !selections.success) return { success: false, message: "Select up to 500 logbook entries and their attachments." };
   const { actor, tenant } = await requirePortalAccess(tenantSlug, data.role);
   const text = data.role === "student" ? data.body : data.feedback;
   if (sanitizeTextForPII(text).redactedCount) return { success: false, message: "Remove personal contact or identification details before saving." };
@@ -39,10 +46,21 @@ export async function savePracticeReportAction(tenantSlug: string, allocationId:
 
       if (data.role === "student") {
         if (data.stage === "FINAL" && allocation.cycle.status !== "ASSESSMENT" && !correcting) throw new Error("Final portfolios open during assessment.");
+        const selection = selections?.success ? selections.data : null;
+        const evidence = selection ? assemblePortfolioEvidence(
+          selection.entryIds, selection.attachmentIds,
+          selection.entryIds.length ? await tx.practiceEvent.findMany({
+            where: { id: { in: selection.entryIds }, allocationId: allocation.id, verificationStatus: "VERIFIED" },
+            select: {
+              id: true, allocationId: true, activityTitle: true, eventDate: true,
+              verifiedMinutes: true, evidenceSanitized: true, evidenceUrl: true,
+            },
+          }) : [],
+        ) : [];
         await tx.assessmentSubmission.create({ data: {
           cycleId: allocation.cycleId, allocationId: allocation.id, evaluatorPersonId: actor.id,
           evaluatorType: "STUDENT_SELF", stage: data.stage, totalScore: 0,
-          rubricPayload: { kind: "PRACTICE_REPORT", body: data.body },
+          rubricPayload: { kind: "PRACTICE_REPORT", body: data.body, ...(selection ? { evidence } : {}) },
         } });
         return;
       }

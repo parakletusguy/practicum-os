@@ -76,6 +76,7 @@ export default async function PostingLetterPage(props: PostingLetterPageProps) {
         </Link>
 
         <div className="flex items-center gap-3">
+          <Link href={`/${tenantSlug}/admin/postings/${allocation.id}/contract`} className="rounded border px-3 py-2 text-sm font-semibold text-emerald-800">Manage learning contract</Link>
           <PrintButton />
         </div>
       </div>

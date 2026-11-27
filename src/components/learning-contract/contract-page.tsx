@@ -18,9 +18,10 @@ export async function ContractPage({ tenantSlug, allocationId, role }: {
         <h1 className="text-2xl font-bold">Learning contract</h1>
         <p>{student.firstName} {student.lastName} · {contract.allocation.hostOrg.name} · {contract.allocation.cycle.name}</p>
         <ol className="list-decimal space-y-2 pl-5 text-sm">
-          {contract.terms.map((term) => <li key={term}>{term}</li>)}
+          {contract.terms.map((term, index) => <li key={index} className="whitespace-pre-wrap">{term}</li>)}
         </ol>
         <p className="text-sm text-slate-600">Version {contract.version.slice(0, 12)}</p>
+        {contract.amendments[0] && <p className="whitespace-pre-wrap rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Amended on {contract.amendments[0].createdAt.toISOString().slice(0, 10)}. {contract.amendments[0].reason}</p>}
         <ul className="space-y-1 text-sm">
           {contractRoles.map((party) => <li key={party}>{contractRoleLabels[party]} · {contract.signedRoles.includes(party) ? "Signed" : "Pending"}</li>)}
         </ul>

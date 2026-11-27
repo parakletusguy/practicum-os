@@ -47,6 +47,7 @@ interface Props {
   cycleId: string;
   cycleName: string;
   formula: GradingFormulaConfig["components"];
+  gradeBands: string[];
   tenantSlug: string;
 }
 
@@ -55,6 +56,7 @@ export function ScorebookClient({
   cycleId,
   cycleName,
   formula,
+  gradeBands,
   tenantSlug,
 }: Props) {
   const [grades, setGrades] = useState<StudentGradeRow[]>(initialGrades);
@@ -73,14 +75,14 @@ export function ScorebookClient({
   );
 
   // Grade Distribution
-  const gradeDistribution: Record<string, number> = { A: 0, B: 0, C: 0, D: 0, F: 0 };
+  const gradeDistribution = new Map<string, number>(gradeBands.map((letter) => [letter, 0]));
   let totalComposite = 0;
   let scoredCount = 0;
 
   grades.forEach((g) => {
     if (g.letterGrade === null || g.compositeScore === null) return;
     scoredCount++;
-    gradeDistribution[g.letterGrade] = (gradeDistribution[g.letterGrade] || 0) + 1;
+    gradeDistribution.set(g.letterGrade, (gradeDistribution.get(g.letterGrade) ?? 0) + 1);
     totalComposite += g.compositeScore;
   });
 
@@ -208,8 +210,7 @@ export function ScorebookClient({
           <span className="text-[11px] text-slate-500 font-medium">Composite Average</span>
         </div>
 
-        {["A", "B", "C", "D", "F"].map((letter) => {
-          const count = gradeDistribution[letter] || 0;
+        {Array.from(gradeDistribution, ([letter, count]) => {
           const pct = grades.length > 0 ? Math.round((count / grades.length) * 100) : 0;
           return (
             <div
