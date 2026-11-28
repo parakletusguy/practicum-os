@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowRight, KeyRound, LoaderCircle, Mail, RotateCw } from "lucide-react";
+import { PracticumLogo } from "@/components/layout/PracticumLogo";
+import { actionStyle, formControlStyle } from "@/components/ui/action-styles";
 import { DEMO_PERSONAS, type DemoPersonaKey } from "@/lib/auth-personas";
 import { setActivePersonaAction } from "@/lib/auth-session";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
@@ -18,6 +20,14 @@ export function LoginForm({ destination, demoEnabled, initialMessage, communityS
   const [awaitingCode, setAwaitingCode] = useState(false);
   const [notice, setNotice] = useState(initialMessage ? { error: true, text: initialMessage } : null);
   const [pending, startTransition] = useTransition();
+  const codeForm = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    if (!awaitingCode) return;
+    const emailInput = codeForm.current?.querySelector<HTMLInputElement>("input[type=email]");
+    const codeInput = codeForm.current?.querySelector<HTMLInputElement>("input[name=code]");
+    (emailInput?.value.trim() ? codeInput : emailInput)?.focus();
+  }, [awaitingCode]);
 
   function requestCode() {
     setNotice(null);
@@ -65,42 +75,53 @@ export function LoginForm({ destination, demoEnabled, initialMessage, communityS
     });
   }
 
-  const input = "mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 focus:border-emerald-600 focus:outline-emerald-600";
-  const primary = "w-full rounded-lg bg-emerald-700 px-4 py-2.5 font-semibold text-white hover:bg-emerald-800 disabled:opacity-60";
+  const primary = actionStyle("primary", "w-full");
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-12 text-slate-900 sm:py-20">
       <div className="mx-auto max-w-md space-y-5">
-        <Link href="/" className="inline-flex items-center gap-2 font-bold text-emerald-800"><ShieldCheck className="h-5 w-5" /> PracticumOS</Link>
+        <Link href={rsuPilot ? "/rsu" : "/"} className="inline-flex rounded-lg text-slate-900"><PracticumLogo /></Link>
         <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
           <div className="space-y-1">
             {rsuPilot && <p className="text-sm font-semibold text-emerald-800">Rivers State University · Social Work</p>}
             <h1 className="text-2xl font-bold">{communitySignUp ? "Sign in to community services" : "Sign in to your practicum"}</h1>
             <p className="text-sm leading-6 text-slate-600">
-              {communitySignUp ? "Enter your email to receive a confirmation link." : rsuPilot
-                ? "Use your university email to verify your account. The practicum office assigns your pilot role."
+              {communitySignUp ? "Enter your email to receive a confirmation link." : awaitingCode
+                ? "Enter the one-time code sent to your email address."
                 : "Use the email address registered with your practicum office. We’ll email you a one-time sign-in code."}
             </p>
           </div>
           {notice && <p role={notice.error ? "alert" : "status"} className={notice.error ? "rounded-lg bg-rose-50 p-3 text-sm text-rose-900" : "rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900"}>{notice.text}</p>}
 
-          {!awaitingCode ? <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); requestCode(); }}>
+          {!awaitingCode ? <form className="space-y-4" aria-busy={pending} onSubmit={(event) => { event.preventDefault(); requestCode(); }}>
             <label className="block text-sm font-medium">Email address
-              <input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required maxLength={254} className={input} />
+              <input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required maxLength={254} className={formControlStyle} />
             </label>
-            <button className={primary} disabled={pending}>{pending ? "Sending…" : communitySignUp ? "Send confirmation link" : "Email sign-in code"}</button>
-            {!communitySignUp && <button type="button" disabled={pending} className="text-sm text-emerald-800 underline" onClick={() => { setNotice(null); setAwaitingCode(true); }}>I already have a code</button>}
-          </form> : <form onSubmit={verifyCode} className="space-y-4">
+            <button type="submit" className={primary} disabled={pending}>
+              {pending ? <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" /> : <Mail aria-hidden="true" className="size-4" />}
+              {pending ? "Sending…" : communitySignUp ? "Send confirmation link" : "Email sign-in code"}
+            </button>
+            {!communitySignUp && <button type="button" disabled={pending} className={actionStyle("secondary", "w-full")} onClick={() => { setNotice(null); setAwaitingCode(true); }}>
+              <KeyRound aria-hidden="true" className="size-4" /> I already have a code
+            </button>}
+          </form> : <form ref={codeForm} onSubmit={verifyCode} aria-busy={pending} className="space-y-4">
             <label className="block text-sm font-medium">Email address
-              <input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required maxLength={254} className={input} />
+              <input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required maxLength={254} className={formControlStyle} />
             </label>
             <label className="block text-sm font-medium">One-time code
               <input name="code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,10}" required maxLength={10}
-                value={token} onChange={(event) => setToken(event.target.value.replace(/\D/g, ""))} className={input} />
+                value={token} onChange={(event) => setToken(event.target.value.replace(/\D/g, ""))} className={formControlStyle} />
             </label>
-            <button className={primary} disabled={pending}>{pending ? "Checking…" : "Confirm sign-in"}</button>
-            <div className="flex justify-between gap-4 text-sm text-emerald-800">
-              <button type="button" disabled={pending} className="underline" onClick={() => { setAwaitingCode(false); setToken(""); setNotice(null); }}>Use the email form</button>
-              <button type="button" disabled={pending || !email.trim()} className="underline" onClick={requestCode}>Request a new code</button>
+            <button type="submit" className={primary} disabled={pending}>
+              {pending ? <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" /> : <ArrowRight aria-hidden="true" className="size-4" />}
+              {pending ? "Checking…" : "Confirm sign-in"}
+            </button>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={pending} className={actionStyle("secondary", "grow")} onClick={() => { setAwaitingCode(false); setToken(""); setNotice(null); }}>
+                <ArrowLeft aria-hidden="true" className="size-4" /> Back to email
+              </button>
+              <button type="button" disabled={pending || !email.trim()} className={actionStyle("secondary", "grow")} onClick={requestCode}>
+                <RotateCw aria-hidden="true" className="size-4" /> Request a new code
+              </button>
             </div>
           </form>}
         </section>

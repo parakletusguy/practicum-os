@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ArrowRight, LayoutGrid, LogOut, Network, ShieldCheck, Users } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
+import { PracticumLogo } from "@/components/layout/PracticumLogo";
+import { actionStyle } from "@/components/ui/action-styles";
 import { signOutAction } from "@/app/auth/login/actions";
 import { AuthenticationError, AuthorizationError, requirePlatformAdmin } from "@/lib/authz";
 import { db } from "@/lib/db";
@@ -33,16 +36,15 @@ export default async function PlatformPage() {
   });
   const institutions = organisations.filter(({ settings }) => !isDemoInstitution(settings));
   const activeCycles = institutions.reduce((total, { _count }) => total + _count.practicumCycles, 0);
-  const textLink = "font-semibold text-emerald-800 underline underline-offset-4 hover:text-emerald-950";
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-5 py-4 sm:px-8">
-          <span className="text-lg font-semibold text-emerald-900">PracticumOS</span>
-          <nav aria-label="Account" className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-            <Link href="/auth/workspaces" className={textLink}>Your workspaces</Link>
-            <form action={signOutAction}><button className={textLink}>Sign out</button></form>
+          <PracticumLogo />
+          <nav aria-label="Account" className="flex flex-wrap items-center gap-2">
+            <Link href="/auth/workspaces" className={actionStyle("secondary")}><LayoutGrid aria-hidden="true" className="size-4" /> Your workspaces</Link>
+            <form action={signOutAction}><button type="submit" className={actionStyle("secondary")}><LogOut aria-hidden="true" className="size-4" /> Sign out</button></form>
           </nav>
         </div>
       </header>
@@ -82,8 +84,8 @@ export default async function PlatformPage() {
                     </div>
                     {institution.memberships.length > 0 && (
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-3 text-sm">
-                        {canManageStaff && <Link href={adminPath + "/access"} aria-label={`Manage staff access for ${institution.name}`} className={textLink}>Manage staff access</Link>}
-                        <Link href={adminPath} aria-label={`Open dashboard for ${institution.name}`} className="rounded-md bg-emerald-700 px-3 py-2 font-semibold text-white hover:bg-emerald-800">Open dashboard</Link>
+                        {canManageStaff && <Link href={adminPath + "/access"} aria-label={`Manage staff access for ${institution.name}`} className={actionStyle("secondary")}><Users aria-hidden="true" className="size-4" /> Manage staff access</Link>}
+                        <Link href={adminPath} aria-label={`Open dashboard for ${institution.name}`} className={actionStyle()}>Open dashboard <ArrowRight aria-hidden="true" className="size-4" /></Link>
                       </div>
                     )}
                   </li>
@@ -95,9 +97,9 @@ export default async function PlatformPage() {
 
         <section aria-labelledby="community-heading" className="space-y-3">
           <h2 id="community-heading" className="text-xl font-semibold">Community services</h2>
-          <ul className="flex flex-wrap gap-x-6 gap-y-3 text-sm">
-            <li><Link href="/gateways/matching" className={textLink}>Matching desk</Link></li>
-            <li><Link href="/gateways/cases" className={textLink}>Cases and provider vetting</Link></li>
+          <ul className="flex flex-wrap gap-3">
+            <li><Link href="/gateways/matching" className={actionStyle("secondary")}><Network aria-hidden="true" className="size-4" /> Matching desk</Link></li>
+            <li><Link href="/gateways/cases" className={actionStyle("secondary")}><ShieldCheck aria-hidden="true" className="size-4" /> Cases and provider vetting</Link></li>
           </ul>
         </section>
       </main>

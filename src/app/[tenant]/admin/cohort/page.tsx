@@ -3,16 +3,8 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { isDemoMode } from "@/lib/runtime-mode";
 import { rsuStudentIntakePath } from "@/modules/practicum-core/student-intake";
-import { 
-  Users, 
-  Upload, 
-  FileSpreadsheet, 
-  CheckCircle2, 
-  Clock, 
-  Building2, 
-  Search,
-  Filter
-} from "lucide-react";
+import { Building2, ClipboardCheck, Search, Users } from "lucide-react";
+import { actionStyle, formControlStyle } from "@/components/ui/action-styles";
 import { CohortImportClient } from "./cohort-import-client";
 
 interface CohortPageProps {
@@ -21,6 +13,7 @@ interface CohortPageProps {
   }>;
   searchParams?: Promise<{
     cycleId?: string;
+    q?: string;
   }>;
 }
 
@@ -40,7 +33,8 @@ export default async function CohortPage(props: CohortPageProps) {
     orderBy: { createdAt: "desc" },
   });
 
-  const selectedCycleId = searchParams?.cycleId || cycles[0]?.id;
+  const requestedCycleId = typeof searchParams?.cycleId === "string" ? searchParams.cycleId : undefined;
+  const selectedCycleId = requestedCycleId || cycles[0]?.id;
   const currentCycle = cycles.find((c) => c.id === selectedCycleId);
 
   const students = currentCycle
@@ -61,29 +55,33 @@ export default async function CohortPage(props: CohortPageProps) {
 
   const matchedCount = students.filter((s) => s.allocation).length;
   const pendingCount = students.length - matchedCount;
+  const search = typeof searchParams?.q === "string" ? searchParams.q.trim().slice(0, 100) : "";
+  const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
+  const visibleStudents = terms.length
+    ? students.filter(({ matricNumber, person }) => {
+        const student = `${person.firstName} ${person.lastName} ${matricNumber}`.toLowerCase();
+        return terms.every((term) => student.includes(term));
+      })
+    : students;
+  const rosterPath = `/${tenantSlug}/admin/cohort`;
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-            <span>Practicum Management</span>
-            <span>•</span>
-            <span className="text-emerald-600">Phase 1: Ingestion</span>
-          </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
             Student Cohort Roster
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Import, validate, and manage entire trainee cohorts enrolled in supervised practice.
+            Review registrations and manage students enrolled in a practicum cycle.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           {hasStudentIntake && (
-            <Link href={rsuStudentIntakePath} className="rounded-md border border-emerald-700 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50">
-              Review Google Form responses
+            <Link href={rsuStudentIntakePath} className={actionStyle()}>
+              <ClipboardCheck aria-hidden="true" className="size-4" /> Review Google Form responses
             </Link>
           )}
           {currentCycle && <CohortImportClient tenantSlug={tenantSlug} cycleId={currentCycle.id} cycleName={currentCycle.name} />}
@@ -99,9 +97,11 @@ export default async function CohortPage(props: CohortPageProps) {
           <div className="text-base font-bold text-slate-900 mt-1 truncate">
             {currentCycle?.name ?? "No cycle selected"}
           </div>
-          <div className="text-xs text-emerald-600 font-semibold mt-1">
-            {currentCycle?.academicYear} • {currentCycle?.requiredHours} Hours
-          </div>
+          {currentCycle && (
+            <div className="mt-1 text-xs font-semibold text-emerald-700">
+              {currentCycle.academicYear} · {currentCycle.requiredHours} hours
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs">
@@ -133,22 +133,31 @@ export default async function CohortPage(props: CohortPageProps) {
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Users className="w-4 h-4 text-emerald-600" />
+            <Users aria-hidden="true" className="w-4 h-4 text-emerald-700" />
             <span className="text-sm font-bold text-slate-800">
               Enrolled Students ({students.length})
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+          {students.length > 0 && (
+            <form action={rosterPath} role="search" aria-label="Search the roster" className="flex flex-wrap items-center gap-2">
+              {currentCycle && <input type="hidden" name="cycleId" value={currentCycle.id} />}
+              <label htmlFor="roster-search" className="sr-only">Student name or matriculation number</label>
               <input
-                type="text"
-                placeholder="Search matric # or name..."
-                className="pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-48 sm:w-64"
+                id="roster-search"
+                type="search"
+                name="q"
+                defaultValue={search}
+                maxLength={100}
+                placeholder="Name or matriculation number"
+                className={`${formControlStyle} mt-0 w-full sm:w-64`}
               />
-            </div>
-          </div>
+              <button type="submit" className={actionStyle("secondary")}><Search aria-hidden="true" className="size-4" /> Search</button>
+              {search && (
+                <Link href={{ pathname: rosterPath, query: { cycleId: currentCycle?.id } }} className={actionStyle("secondary")}>Clear search</Link>
+              )}
+            </form>
+          )}
         </div>
 
         <div className="overflow-x-auto">
@@ -164,14 +173,14 @@ export default async function CohortPage(props: CohortPageProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {students.length === 0 ? (
+              {visibleStudents.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-slate-500">
-                    No students currently enrolled in this cycle.
+                    {search && students.length > 0 ? "No students match your search." : currentCycle ? "No students enrolled in this cycle yet." : "Set up a practicum cycle to enroll students."}
                   </td>
                 </tr>
               ) : (
-                students.map((student) => {
+                visibleStudents.map((student) => {
                   const hasAllocation = !!student.allocation;
                   return (
                     <tr key={student.id} className="hover:bg-slate-50/60 transition-colors">
@@ -189,7 +198,7 @@ export default async function CohortPage(props: CohortPageProps) {
                         <div className="text-[11px] text-slate-500">{student.specialty}</div>
                       </td>
                       <td className="py-3.5 px-4 text-slate-600">
-                        {student.locationPref ?? "Mainland"}
+                        {student.locationPref ?? "Not provided"}
                       </td>
                       <td className="py-3.5 px-4">
                         {hasAllocation ? (

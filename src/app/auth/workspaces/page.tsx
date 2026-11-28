@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { ArrowRight, Building2, House, LogOut, ShieldCheck } from "lucide-react";
 import { redirect } from "next/navigation";
+import { PracticumLogo } from "@/components/layout/PracticumLogo";
+import { actionStyle } from "@/components/ui/action-styles";
 import { AuthenticationError, AuthorizationError, requireAuthenticatedActor } from "@/lib/authz";
 import { db } from "@/lib/db";
 import { isDemoMode } from "@/lib/runtime-mode";
@@ -52,25 +55,36 @@ export default async function WorkspacesPage() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl space-y-6 px-5 py-16">
-      <h1 className="text-3xl font-bold text-slate-900">Your workspaces</h1>
+    <main className="mx-auto max-w-2xl space-y-7 px-5 py-10 sm:py-16">
+      <PracticumLogo />
+      <h1 className="text-3xl font-bold tracking-tight text-slate-900">Your workspaces</h1>
       {workspaces.size ? (
-        <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
-          {Array.from(workspaces, ([href, { name, role }]) => (
-            <li key={href}>
-              <Link href={href} className="block p-4 hover:bg-emerald-50">
-                <span className="block font-semibold text-emerald-900">{name}</span>
-                <span className="text-sm text-slate-600">{role}</span>
-              </Link>
-            </li>
-          ))}
+        <ul className="space-y-3">
+          {Array.from(workspaces, ([href, { name, role }]) => {
+            const Icon = href === "/platform" ? ShieldCheck : Building2;
+            return (
+              <li key={href}>
+                <Link href={href} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-emerald-700 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700"><Icon aria-hidden="true" className="size-5" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-semibold text-slate-900">{name}</span>
+                    <span className="text-sm text-slate-600">{role}</span>
+                  </span>
+                  <ArrowRight aria-hidden="true" className="size-4 shrink-0 text-emerald-700" />
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       ) : (
-        <p className="text-slate-700">No institutional workspace is available for this account. Ask your practicum office to confirm your email and role.</p>
+        <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-5">
+          <Building2 aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-emerald-700" />
+          <p className="text-sm leading-6 text-slate-700">This account is awaiting workspace access. Ask your practicum office to confirm your email and role.</p>
+        </div>
       )}
-      <div className="flex gap-5 text-sm font-semibold text-emerald-700">
-        <Link href="/" className="underline">Return home</Link>
-        <form action={signOutAction}><button className="underline">Sign out</button></form>
+      <div className="flex flex-wrap gap-3">
+        <Link href="/" className={actionStyle("secondary")}><House aria-hidden="true" className="size-4" /> Return home</Link>
+        <form action={signOutAction}><button type="submit" className={actionStyle("secondary")}><LogOut aria-hidden="true" className="size-4" /> Sign out</button></form>
       </div>
     </main>
   );

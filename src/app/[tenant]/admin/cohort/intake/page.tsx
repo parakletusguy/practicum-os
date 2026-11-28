@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ArrowLeft, ArrowRight, CalendarDays, ClipboardList, Inbox } from "lucide-react";
 import { notFound } from "next/navigation";
+import { actionStyle } from "@/components/ui/action-styles";
 import { db } from "@/lib/db";
 import { requirePortalAccess } from "@/lib/portal-access";
 import { isDemoMode } from "@/lib/runtime-mode";
@@ -14,7 +16,6 @@ const pageSize = 25;
 const dateFormat = new Intl.DateTimeFormat("en-NG", {
   dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Lagos",
 });
-const textLink = "font-semibold text-emerald-800 underline underline-offset-4 hover:text-emerald-950";
 
 export default async function StudentIntakePage({ params, searchParams }: {
   params: Promise<{ tenant: string }>;
@@ -45,30 +46,42 @@ export default async function StudentIntakePage({ params, searchParams }: {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <header className="space-y-2 border-b border-slate-200 pb-5">
-        <Link className={`text-sm ${textLink}`} href="/rsu/admin/cohort">Student roster</Link>
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Review student registrations</h1>
-        <p className="text-sm text-slate-600">
-          Check each Google Form submission against university records before adding a student to a cycle.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-5">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Review student registrations</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Check each Google Form submission against university records before adding a student to a cycle.
+          </p>
+        </div>
+        <Link className={actionStyle("secondary")} href="/rsu/admin/cohort">
+          <ArrowLeft aria-hidden="true" className="size-4" /> Student roster
+        </Link>
       </header>
 
       {!cycles.length && (
-        <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 text-sm">
-          <p>Registrations can be reviewed now. Set up an RSU practicum cycle before enrolling students.</p>
-          <Link className={textLink} href="/rsu/admin/cycles">Open placement cycles</Link>
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 text-sm sm:p-5">
+          <div className="flex items-start gap-3">
+            <CalendarDays aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-emerald-700" />
+            <div>
+              <p className="font-semibold text-slate-900">A practicum cycle is needed for enrollment</p>
+              <p className="mt-1 text-slate-600">You can review registrations now and enroll students once a cycle is set up.</p>
+            </div>
+          </div>
+          <Link className={actionStyle("secondary")} href="/rsu/admin/cycles">Open placement cycles <ArrowRight aria-hidden="true" className="size-4" /></Link>
         </div>
       )}
 
       <section aria-labelledby="pending-heading" className="space-y-3">
-        <h2 id="pending-heading" className="text-lg font-semibold">Awaiting review ({total})</h2>
+        <h2 id="pending-heading" className="flex items-center gap-2 text-lg font-semibold">
+          <ClipboardList aria-hidden="true" className="size-5 text-emerald-700" /> Awaiting review ({total})
+        </h2>
         {responses.length ? (
           <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
             {responses.map((response) => (
-              <li key={response.id} className="flex flex-wrap items-start justify-between gap-4 p-4 sm:p-5">
+              <li key={response.id} className="flex flex-col items-start justify-between gap-4 p-4 sm:flex-row sm:p-5">
                 <div className="min-w-0 space-y-1">
                   <h3 className="font-semibold">{response.firstName} {response.lastName}</h3>
-                  <p className="break-all text-sm text-slate-700">{response.email}</p>
+                  <p className="wrap-anywhere text-sm text-slate-700">{response.email}</p>
                   <p className="text-sm text-slate-700">Matriculation number {response.matricNumber}</p>
                   <p className="text-sm text-slate-700">{response.level ? `Level ${response.level.slice(0, -1)}` : "Level not supplied"}</p>
                   <time className="block text-sm text-slate-600" dateTime={response.submittedAt.toISOString()}>
@@ -79,13 +92,18 @@ export default async function StudentIntakePage({ params, searchParams }: {
               </li>
             ))}
           </ul>
-        ) : <p className="text-sm text-slate-600">No registrations are waiting for review.</p>}
+        ) : (
+          <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
+            <Inbox aria-hidden="true" className="size-5 shrink-0 text-emerald-700" />
+            <p>No registrations are waiting for review.</p>
+          </div>
+        )}
 
         {lastPage > 1 && (
           <nav aria-label="Registration pages" className="flex flex-wrap items-center gap-4 text-sm">
-            {page > 1 && <Link className={textLink} href={`${rsuStudentIntakePath}?page=${page - 1}`}>Previous</Link>}
+            {page > 1 && <Link className={actionStyle("secondary")} href={`${rsuStudentIntakePath}?page=${page - 1}`}><ArrowLeft aria-hidden="true" className="size-4" /> Previous</Link>}
             <span className="text-slate-600">Page {page} of {lastPage}</span>
-            {page < lastPage && <Link className={textLink} href={`${rsuStudentIntakePath}?page=${page + 1}`}>Next</Link>}
+            {page < lastPage && <Link className={actionStyle("secondary")} href={`${rsuStudentIntakePath}?page=${page + 1}`}>Next <ArrowRight aria-hidden="true" className="size-4" /></Link>}
           </nav>
         )}
       </section>

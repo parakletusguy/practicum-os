@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   cycle: vi.fn(),
   staff: vi.fn(),
   access: vi.fn(),
+  registrations: vi.fn(),
   alerts: vi.fn(),
   events: vi.fn(),
   verifiedMinutes: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock("@/lib/db", () => ({
   db: {
     practicumCycle: { findFirst: mocks.cycle },
     orgMembership: { findMany: mocks.staff, findFirst: mocks.access },
+    studentIntakeResponse: { count: mocks.registrations },
     earlyWarningAlert: { findMany: mocks.alerts },
     practiceEvent: { findMany: mocks.events, aggregate: mocks.verifiedMinutes },
   },
@@ -37,6 +39,7 @@ describe("institutional dashboard", () => {
     });
     mocks.staff.mockResolvedValue([{ personId: "staff-1" }, { personId: "staff-2" }]);
     mocks.access.mockResolvedValue({ id: "admin-grant" });
+    mocks.registrations.mockResolvedValue(4);
   });
 
   it("shows staff setup and skips activity queries when there is no active cycle", async () => {
@@ -46,7 +49,10 @@ describe("institutional dashboard", () => {
     expect(html).toContain("Professor Mina Ogbanga · Field Director");
     expect(html).toContain("2 staff accounts enabled");
     expect(html).toContain('href="/rsu/admin/access"');
+    expect(html).toContain("4 registrations awaiting review");
     expect(html).toContain("No practicum cycle configured yet.");
+    expect(html).toContain('href="/rsu/admin/cohort/intake"');
+    expect(mocks.registrations).toHaveBeenCalledWith({ where: { tenantId: "rsu-id", status: "PENDING" } });
     for (const query of [mocks.alerts, mocks.events, mocks.verifiedMinutes]) expect(query).not.toHaveBeenCalled();
   });
 

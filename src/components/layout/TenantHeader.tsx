@@ -5,7 +5,9 @@ import Link from "next/link";
 import { Shield, ChevronDown, Menu } from "lucide-react";
 import { NetworkStatusBadge } from "@/components/ui/network-status-badge";
 import { NotificationCenter } from "@/components/layout/NotificationCenter";
+import { PracticumMark } from "@/components/layout/PracticumLogo";
 import { useSidebar } from "@/components/layout/SidebarContext";
+import { actionStyle } from "@/components/ui/action-styles";
 
 interface TenantHeaderProps {
   tenantSlug: string;
@@ -24,7 +26,7 @@ export function TenantHeader({
   roleLabel,
   allowRoleSwitch = false,
 }: TenantHeaderProps) {
-  const { toggle } = useSidebar();
+  const { isOpen, toggle } = useSidebar();
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
 
   const roles = [
@@ -42,15 +44,18 @@ export function TenantHeader({
       {/* Left side: Hamburger toggle + breadcrumb */}
       <div className="flex min-w-0 items-center gap-2 pr-2 sm:gap-3">
         <button
+          id="tenant-menu-button"
           type="button"
           onClick={toggle}
-          className="md:hidden p-2 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          aria-label="Toggle navigation menu"
+          className={actionStyle("secondary", "shrink-0 gap-1.5 px-2.5 md:hidden")}
+          aria-controls="tenant-admin-navigation"
+          aria-expanded={isOpen}
         >
-          <Menu className="w-5 h-5" />
+          <Menu aria-hidden="true" className="size-4" /> Menu
         </button>
 
         <div className="flex min-w-0 items-center gap-2">
+          <PracticumMark className="size-7 rounded-md md:hidden [&>svg]:size-4" />
           <span className="truncate text-xs font-semibold text-slate-700 sm:text-sm">
             {tenantName}
           </span>

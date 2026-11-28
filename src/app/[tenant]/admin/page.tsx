@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { isDemoMode } from "@/lib/runtime-mode";
 import { fieldDirectorFromSettings } from "@/lib/institution-settings";
 import { formatDate, formatMinutesToHours } from "@/lib/utils";
+import { actionStyle } from "@/components/ui/action-styles";
+import { rsuStudentIntakePath } from "@/modules/practicum-core/student-intake";
 import { 
   Users, 
   Building2, 
@@ -15,7 +17,9 @@ import {
   ShieldAlert, 
   Shuffle, 
   MailCheck, 
-  FileSpreadsheet
+  FileSpreadsheet,
+  ClipboardCheck,
+  type LucideIcon,
 } from "lucide-react";
 
 interface AdminDashboardProps {
@@ -26,11 +30,38 @@ interface AdminDashboardProps {
 
 export const dynamic = "force-dynamic";
 
+function SetupCard({ title, icon: Icon, detail, href, label, primary = false }: {
+  title: string;
+  icon: LucideIcon;
+  detail: string;
+  href?: string;
+  label?: string;
+  primary?: boolean;
+}) {
+  return (
+    <section className="flex flex-col items-start gap-4 rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+      <span className="inline-flex size-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-800">
+        <Icon aria-hidden="true" className="size-5" />
+      </span>
+      <div className="space-y-1.5">
+        <h2 className="text-base font-semibold text-slate-950">{title}</h2>
+        <p className="text-sm leading-6 text-slate-700">{detail}</p>
+      </div>
+      {href && (
+        <Link href={href} className={actionStyle(primary ? "primary" : "secondary", "mt-auto")}>
+          {label} <ArrowRight aria-hidden="true" className="size-4" />
+        </Link>
+      )}
+    </section>
+  );
+}
+
 export default async function AdminDashboard(props: AdminDashboardProps) {
   const params = await props.params;
   const tenantSlug = params.tenant;
   const { actor, tenant } = await requirePortalAccess(tenantSlug, "admin");
   const director = fieldDirectorFromSettings(tenant.settings);
+  const isRsuPilot = tenantSlug === "rsu" && !isDemoMode();
 
   const activeCycle = await db.practicumCycle.findFirst({
     where: {
@@ -47,7 +78,7 @@ export default async function AdminDashboard(props: AdminDashboardProps) {
   });
 
   if (!activeCycle) {
-    const [setupCycle, staff, access] = await Promise.all([
+    const [setupCycle, staff, access, pendingRegistrations] = await Promise.all([
       db.practicumCycle.findFirst({
         where: { tenantId: tenant.id, status: { not: "ARCHIVED" } },
         orderBy: [{ createdAt: "desc" }, { id: "asc" }],
@@ -65,26 +96,34 @@ export default async function AdminDashboard(props: AdminDashboardProps) {
         where: { organisationId: tenant.id, personId: actor.id, role: "INSTITUTION_ADMIN", status: "ACTIVE" },
         select: { id: true },
       }),
+      isRsuPilot ? db.studentIntakeResponse.count({ where: { tenantId: tenant.id, status: "PENDING" } }) : 0,
     ]);
     const adminPath = "/" + tenantSlug + "/admin";
     return (
-      <div className="mx-auto max-w-4xl space-y-5">
-        <header className="border-b border-slate-200 pb-5">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">{tenantSlug === "rsu" ? "Social Work staff pilot" : "Practicum setup"}</h1>
-          {director && <p className="mt-2 text-sm text-slate-700">{director.name} · Field Director</p>}
+      <div className="mx-auto max-w-6xl space-y-6">
+        <header className="space-y-2 border-b border-slate-200 pb-5 sm:pb-6">
+          <p className="text-sm font-semibold text-emerald-800">{tenant.name}</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-4xl">{isRsuPilot ? "Social Work staff pilot" : "Practicum setup"}</h1>
+          {director && <p className="text-sm text-slate-700">{director.name} · Field Director</p>}
         </header>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <section className="space-y-3 rounded-xl border bg-white p-5">
-            <h2 className="font-semibold">Staff access</h2>
-            <p className="text-sm text-slate-700">{staff.length} {staff.length === 1 ? "staff account" : "staff accounts"} enabled</p>
-            {access ? <Link href={adminPath + "/access"} className="inline-flex rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800">Manage staff access</Link>
-              : <p className="text-sm text-slate-600">An institutional administrator can assign staff roles.</p>}
-          </section>
-          <section className="space-y-3 rounded-xl border bg-white p-5">
-            <h2 className="font-semibold">Practicum cycle</h2>
-            <p className="text-sm text-slate-700">{setupCycle ? setupCycle.name + " · " + setupCycle.status.toLowerCase().replaceAll("_", " ") : "No practicum cycle configured yet."}</p>
-            <Link href={adminPath + "/cycles"} className="inline-flex rounded-lg border px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50">{setupCycle ? "Review placement cycles" : "Set up a cycle"}</Link>
-          </section>
+        <div className={isRsuPilot ? "grid gap-4 sm:grid-cols-2 xl:grid-cols-3" : "grid gap-4 sm:grid-cols-2"}>
+          <SetupCard
+            title="Staff access" icon={Users}
+            detail={`${staff.length} ${staff.length === 1 ? "staff account" : "staff accounts"} enabled.${access ? "" : " An institutional administrator can assign roles."}`}
+            href={access ? adminPath + "/access" : undefined} label="Manage staff access" primary={Boolean(access)}
+          />
+          {isRsuPilot && (
+            <SetupCard
+              title="Student registrations" icon={ClipboardCheck}
+              detail={`${pendingRegistrations} ${pendingRegistrations === 1 ? "registration" : "registrations"} awaiting review.`}
+              href={rsuStudentIntakePath} label="Review registrations" primary={!access}
+            />
+          )}
+          <SetupCard
+            title="Practicum cycle" icon={Calendar}
+            detail={setupCycle ? setupCycle.name + " · " + setupCycle.status.toLowerCase().replaceAll("_", " ") : "No practicum cycle configured yet."}
+            href={adminPath + "/cycles"} label={setupCycle ? "Review placement cycles" : "Set up a cycle"}
+          />
         </div>
       </div>
     );
