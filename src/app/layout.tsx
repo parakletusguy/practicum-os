@@ -18,6 +18,10 @@ export const metadata: Metadata = {
     "community care gateway",
   ],
   authors: [{ name: "PracticumOS" }],
+  icons: {
+    icon: { url: "/practicum-mark-32.png", sizes: "32x32", type: "image/png" },
+    apple: "/practicum-mark-192.png",
+  },
   openGraph: {
     title: "PracticumOS — Practicum coordination workspace",
     description:

@@ -55,7 +55,7 @@ export function TenantHeader({
         </button>
 
         <div className="flex min-w-0 items-center gap-2">
-          <PracticumMark className="size-7 rounded-md md:hidden [&>svg]:size-4" />
+          <PracticumMark className="size-7 md:hidden" />
           <span className="truncate text-xs font-semibold text-slate-700 sm:text-sm">
             {tenantName}
           </span>

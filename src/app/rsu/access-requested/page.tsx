@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PracticumLogo } from "@/components/layout/PracticumLogo";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { signOutAction } from "@/app/auth/login/actions";
 import { db } from "@/lib/db";
@@ -15,6 +16,7 @@ export default async function RsuAccessRequestedPage() {
   if (!request) redirect("/auth/workspaces");
   return (
     <main className="mx-auto max-w-xl space-y-4 px-5 py-14">
+      <PracticumLogo />
       <p className="text-sm font-semibold text-emerald-800">Rivers State University · Social Work</p>
       <h1 className="text-2xl font-bold">Pilot access requested</h1>
       <p>Your email is verified. The practicum office needs to assign your role before you can open the pilot workspace.</p>
